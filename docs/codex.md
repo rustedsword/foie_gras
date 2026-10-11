@@ -61,7 +61,7 @@ them, enable `features.hooks` in your Codex configuration.
 The installer adds one handler to the project's `.codex/hooks.json`, preserving
 other hooks. It references this checkout's `codex/feed.py` by absolute path, so
 keep the checkout at that location. Repeating installation at the same path is
-safe. You can also supply a project path: `python3 codex/feed.py --install example`.
+safe. You can also supply a project path: `python3 codex/feed.py --install path/to/project`.
 There are no skills, generated commands, or session launchers.
 
 To remove the integration, remove its handler from `.codex/hooks.json`, or

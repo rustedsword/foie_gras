@@ -143,15 +143,15 @@ def hook(event):
 def install(project):
     path = Path(project).resolve() / ".codex/hooks.json"
     config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    command = shlex.join([sys.executable, str(Path(__file__).resolve())])
+    script = shlex.quote(str(Path(__file__).resolve()))
     handler = {
-        "type": "command", "command": command, "additionalContextLimit": 0,
+        "type": "command", "command": f"python3 {script}", "additionalContextLimit": 0,
         "timeout": 10, "statusMessage": "Reading foie_gras files",
     }
     groups = config.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
     for group in groups:
         for existing in group.get("hooks", []):
-            if existing.get("command") == command:
+            if existing.get("command", "").endswith(f" {script}"):
                 existing.update(handler)
                 break
         else:

@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -235,8 +236,10 @@ class FeedTests(unittest.TestCase):
         self.assertFalse((self.root / "unexpected").exists())
 
     def test_install_preserves_other_hooks_and_is_idempotent(self):
+        pinned = shlex.join(["/usr/lib/python-exec/python3.13/python3", str(SCRIPT)])
         original = {"description": "user hooks", "hooks": {
-            "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "echo custom"}]}],
+            "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "echo custom"}]},
+                                 {"hooks": [{"type": "command", "command": pinned}]}],
             "Stop": [{"hooks": [{"type": "command", "command": "echo stop"}]}],
         }}
         path = self.write(".codex/hooks.json", json.dumps(original))
@@ -249,6 +252,7 @@ class FeedTests(unittest.TestCase):
         handlers = [h for group in actual["hooks"]["UserPromptSubmit"] for h in group["hooks"]]
         self.assertEqual(len(handlers), 2)
         self.assertEqual(handlers[0]["command"], "echo custom")
+        self.assertEqual(handlers[1]["command"], shlex.join(["python3", str(SCRIPT)]))
         self.assertEqual(handlers[1]["additionalContextLimit"], 0)
         self.assertNotIn("async", handlers[1])
         path.write_text('{"hooks": []}')
