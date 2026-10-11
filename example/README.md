@@ -2,10 +2,55 @@
 
 A tiny todo CLI with foie_gras set up and two lists:
 
-- `.foie_gras/default`, loaded by `/feed`: model, storage, CLI and tests
-- `.foie_gras/export`, loaded by `/feed-export`: the CSV exporter, model and storage
+- `.foie_gras/default`: model, storage, CLI and tests
+- `.foie_gras/export`: the CSV exporter, model and storage
 
 `docs/` is in neither.
+
+## Codex CLI
+
+```sh
+cd example
+codex
+```
+
+Review and trust the foie_gras hook when Codex asks, or open `/hooks`. Then type:
+
+```text
+Add a --priority option (low, normal, high; default normal) to `todo add`, show it in `todo list` and cover it in tests.
+```
+
+The hook reads the five default files before Codex receives the first prompt.
+Ordinary follow-ups do not reload files. To load the export list at any time,
+submit this command alone:
+
+```text
+feed:export
+```
+
+The hook loads the files locally without calling the model. Then submit your task:
+
+```text
+Add a --format json option to the exporter
+```
+
+The model receives the files and the task; the `feed:export` command stays local.
+
+`.codex/hooks.json` resolves `codex/feed.py` from the repository root, so the
+example works wherever this repository is cloned. Each explicit `feed:NAME`
+reads fresh contents; use `feed:default` to reload the default files.
+
+For non-interactive use from `example/`:
+
+```sh
+codex exec "Explain how the todo CLI works"
+FOIE_GRAS_LIST=export codex exec "Explain how the exporter works"
+```
+
+The first command loads `default`; the second loads only `export`. Both send the
+file contents with the task, without a selector in the model's prompt.
+
+## Claude Code
 
 ```sh
 cd example
@@ -20,7 +65,7 @@ Then type:
 
 Claude Code attaches the five default files to that prompt, and Claude edits them without reading them first. `/feed-export Add a --format json option to the exporter` does the same with the export list.
 
-The app itself:
+## The app itself
 
 ```sh
 python3 -m todo add "buy milk"
