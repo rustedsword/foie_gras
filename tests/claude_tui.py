@@ -20,6 +20,7 @@ from pathlib import Path
 
 from claude import BLOCKED, TASK, hook, install_adapter, write
 
+EXAMPLE = Path(__file__).resolve().parent.parent / "example"
 ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>78]")
 
 
@@ -48,10 +49,24 @@ def replies(entries):
     return [b["text"] for b in blocks(entries, "assistant", "text")]
 
 
-def drive(root, sid, model, prompt, done, timeout, args=()):
+def prompted(entries):
+    return any(e.get("type") == "user" for e in entries)
+
+
+def attached(entries):
+    return [e["attachment"]["displayPath"] for e in entries if (e.get("attachment") or {}).get("type") == "file"]
+
+
+def forget(sid):
+    for f in Path.home().glob(f".claude/projects/*/{sid}.jsonl"):
+        shutil.rmtree(f.with_suffix(""), ignore_errors=True)
+        f.unlink()
+
+
+def drive(root, sid, model, typed, done, timeout, args=(), isolated=True, trust=True):
     cmd = [
-        "claude", "--model", model, "--setting-sources", "project,local", "--strict-mcp-config",
-        "--allowedTools=Edit", "--session-id", sid, *args, *([prompt] if prompt else []),
+        "claude", "--model", model, "--strict-mcp-config", "--session-id", sid,
+        *(["--setting-sources", "project,local", "--allowedTools=Edit"] if isolated else []), *args,
     ]
     env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
     env["TERM"] = "xterm-256color"
@@ -60,20 +75,33 @@ def drive(root, sid, model, prompt, done, timeout, args=()):
         os.chdir(root)
         os.execvpe(cmd[0], cmd, env)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 160, 0, 0))
-    screen, trusted, deadline = "", False, time.time() + timeout
+    screen, mark, trusted, early, sent = "", 0, False, False, None
+    quiet, deadline = time.time(), time.time() + timeout
     try:
         while time.time() < deadline and not done(transcript(sid)):
-            if select.select([fd], [], [], 0.5)[0]:
+            if select.select([fd], [], [], 0.3)[0]:
                 try:
                     screen += ANSI.sub("", os.read(fd, 1 << 16).decode(errors="replace"))
+                    quiet = time.time()
                 except OSError:
                     break
             if not trusted and "trustthisfolder" in re.sub(r"\s", "", screen).lower():
+                if not trust:
+                    break
                 time.sleep(1)
                 os.write(fd, b"\x1b[B")
                 time.sleep(0.5)
                 os.write(fd, b"\r")
-                trusted = True
+                trusted, mark = True, len(screen)
+            elif sent is None and "❯" in screen[mark:] and time.time() - quiet > 3:
+                early = prompted(transcript(sid))
+                os.write(fd, typed.encode())
+                time.sleep(1)
+                os.write(fd, b"\r")
+                sent = time.time()
+            elif sent and time.time() - sent > 10 and not prompted(transcript(sid)):
+                os.write(fd, b"\r")
+                sent = time.time()
     finally:
         for key in (b"\x03", b"\x03"):
             try:
@@ -87,60 +115,34 @@ def drive(root, sid, model, prompt, done, timeout, args=()):
             pass
         os.waitpid(pid, 0)
         os.close(fd)
-    return screen
-
-
-def fixture(strict):
-    root = Path(tempfile.mkdtemp(prefix="fg-tui-"))
-    alpha, beta = secrets.token_hex(6), secrets.token_hex(6)
-    write(root / "src/alpha.py", f'ALPHA = "{alpha}"\n')
-    write(root / "src/beta.py", f'BETA = "{beta}"\n')
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    install_adapter(root, agent=True)
-    guard = hook("PreToolUse", 'echo "blocked by foie_gras test" >&2; exit 2', "|".join(BLOCKED)) if strict else {}
-    settings = {"agent": "foie-gras", "permissions": {"deny": ["Agent(foie-gras)"]}, "hooks": guard}
-    write(root / ".claude/settings.json", json.dumps(settings, indent=2))
-    return root, alpha, beta
-
-
-def bootstrap(model, timeout):
-    root, alpha, _ = fixture(strict=False)
-    sid = str(uuid.uuid4())
-    try:
-        screen = drive(root, sid, model, None, lambda t: replies(t), timeout)
-        entries = transcript(sid)
-        files = [e["attachment"]["filename"] for e in entries if (e.get("attachment") or {}).get("type") == "file"]
-        return {
-            "scenario": "bootstrap",
-            "feed_ran": any("<command-name>/feed</command-name>" in t for t in (b["text"] for b in blocks(entries, "user", "text"))),
-            "files": [Path(f).name for f in files],
-            "reply": (replies(entries) or [""])[-1][:200],
-            "ok": len(files) == 2 and any("Ready" in r for r in replies(entries)),
-            "screen": screen[-1500:] if not entries else "",
-        }
-    finally:
-        subprocess.run(["claude", "purge", "-y", str(root)], capture_output=True)
-        shutil.rmtree(root, ignore_errors=True)
+    return screen, early
 
 
 def task(model, timeout):
-    root, alpha, beta = fixture(strict=True)
+    root = Path(tempfile.mkdtemp(prefix="fg-tui-"))
     sid = str(uuid.uuid4())
     try:
-        prompt = TASK.format(beta=beta)
+        alpha, beta = secrets.token_hex(6), secrets.token_hex(6)
+        write(root / "src/alpha.py", f'ALPHA = "{alpha}"\n')
+        write(root / "src/beta.py", f'BETA = "{beta}"\n')
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        install_adapter(root)
+        guard = hook("PreToolUse", 'echo "blocked by foie_gras test" >&2; exit 2', "|".join(BLOCKED))
+        write(root / ".claude/settings.json", json.dumps({"hooks": guard}, indent=2))
         done = lambda t: any("ALPHA=" in r for r in replies(t))
-        screen = drive(root, sid, model, prompt, done, timeout, ["--tools=Edit,Bash"])
+        typed = "/feed " + TASK.format(beta=beta)
+        screen, early = drive(root, sid, model, typed, done, timeout, ["--tools=Edit,Bash"])
         entries = transcript(sid)
-        calls = [b["name"] for b in blocks(entries, "assistant", "tool_use")]
         context = any(alpha in r for r in replies(entries))
         edit = (root / "src/beta.py").read_text() == 'BETA = "edited"\n'
         return {
             "scenario": "task",
+            "auto_started": early,
             "context": context,
             "edit": edit,
-            "calls": calls,
+            "calls": [b["name"] for b in blocks(entries, "assistant", "tool_use")],
             "reply": (replies(entries) or [""])[-1][-200:],
-            "ok": context and edit,
+            "ok": not early and context and edit,
             "screen": screen[-1500:] if not entries else "",
         }
     finally:
@@ -148,12 +150,41 @@ def task(model, timeout):
         shutil.rmtree(root, ignore_errors=True)
 
 
+def example(model, timeout):
+    feed = subprocess.run(
+        [EXAMPLE / ".claude/skills/feed/feed.sh"],
+        env={**os.environ, "CLAUDE_PROJECT_DIR": str(EXAMPLE)}, capture_output=True, text=True,
+    )
+    expected = [line[1:].replace("\\ ", " ") for line in feed.stdout.splitlines() if line.startswith("@")]
+    sid = str(uuid.uuid4())
+    try:
+        typed = "/feed Reply with Ready. and nothing else."
+        screen, early = drive(EXAMPLE, sid, model, typed, replies, timeout, isolated=False, trust=False)
+        entries = transcript(sid)
+        files = attached(entries)
+        return {
+            "scenario": "example",
+            "auto_started": early,
+            "expected": expected,
+            "files": files,
+            "reply": (replies(entries) or [""])[-1][:200],
+            "ok": not early and sorted(files) == sorted(expected) and any("Ready" in r for r in replies(entries)),
+            "screen": screen[-1500:] if not entries else "",
+        }
+    finally:
+        forget(sid)
+
+
+SCENARIOS = {f.__name__: f for f in [task, example]}
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("scenarios", nargs="*", choices=list(SCENARIOS), default=["task"])
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--timeout", type=int, default=240)
     a = ap.parse_args()
-    results = [bootstrap(a.model, a.timeout), task(a.model, a.timeout)]
+    results = [SCENARIOS[s](a.model, a.timeout) for s in a.scenarios]
     print(json.dumps(results, indent=2))
     sys.exit(0 if all(r["ok"] for r in results) else 1)
 

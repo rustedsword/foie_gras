@@ -100,11 +100,15 @@ def skill_static(root, task):
     return {"prompt": "/feed " + task}
 
 
-def install_adapter(root, agent=False):
+def install_adapter(root, lists=None):
     shutil.copytree(ADAPTER / "skills/feed", root / ".claude/skills/feed")
-    if agent:
-        shutil.copytree(ADAPTER / "agents", root / ".claude/agents")
-    write(root / ".foie_gras", "# test manifest\nsrc/**/*.py\n")
+    if lists is None:
+        write(root / ".foie_gras", "# test manifest\nsrc/**/*.py\n")
+        return
+    (root / ".foie_gras").unlink(missing_ok=True)
+    for name, body in lists.items():
+        write(root / ".foie_gras" / name, body)
+    subprocess.run([root / ".claude/skills/feed/feed.sh", "--sync"], cwd=root, check=True, capture_output=True)
 
 
 def adapter_skill(root, task):
@@ -112,14 +116,9 @@ def adapter_skill(root, task):
     return {"prompt": "/feed " + task}
 
 
-def adapter_agent(root, task):
-    install_adapter(root, agent=True)
-    return {"prompt": task, "settings": {"agent": "foie-gras"}, "deny": ["Agent(foie-gras)"]}
-
-
-def adapter_agent_flag(root, task):
-    install_adapter(root, agent=True)
-    return {"prompt": task, "args": ["--agent", "foie-gras"]}
+def adapter_list(root, task):
+    install_adapter(root, {"default": "src/beta.py\n", "pair": "src/alpha.py\nsrc/beta.py\n"})
+    return {"prompt": "/feed-pair " + task}
 
 
 def adapter_large(root, task):
@@ -149,37 +148,36 @@ MECHANISMS = {f.__name__: f for f in [
     skill_static,
     resume_fork,
     adapter_skill,
-    adapter_agent,
-    adapter_agent_flag,
+    adapter_list,
     adapter_large,
     adapter_large_raised,
 ]}
 OPTIONAL = {"adapter_large", "adapter_large_raised"}
+MARKER = "ALPHA=<value>"
 STRICT = {
-    "baseline": (False, False),
-    "claude_md_import": (True, False),
-    "claude_md_import_hint": (True, False),
-    "session_start_context": (True, False),
-    "session_start_initial_message": (True, True),
-    "append_system_prompt": (True, False),
-    "prompt_mention": (True, True),
-    "command_static": (True, True),
-    "skill_static": (True, True),
-    "resume_fork": (True, False),
-    "adapter_skill": (True, True),
-    "adapter_agent": (True, True),
-    "adapter_agent_flag": (True, True),
-    "adapter_large": (False, True),
-    "adapter_large_raised": (True, True),
+    "baseline": (False, False, 1),
+    "claude_md_import": (True, False, 1),
+    "claude_md_import_hint": (True, False, 1),
+    "session_start_context": (True, False, 1),
+    "session_start_initial_message": (True, True, 1),
+    "append_system_prompt": (True, False, 1),
+    "prompt_mention": (True, True, 1),
+    "command_static": (True, True, 2),
+    "skill_static": (True, True, 2),
+    "resume_fork": (True, False, 1),
+    "adapter_skill": (True, True, 1),
+    "adapter_list": (True, True, 1),
+    "adapter_large": (False, True, 1),
+    "adapter_large_raised": (True, True, 1),
 }
 
 
-def claude(root, model, prompt, args=(), persist=False, env=None):
+def claude(root, model, prompt, args=(), env=None):
     cmd = [
         "claude", "-p", "--model", model, "--output-format", "stream-json", "--verbose",
         "--setting-sources", "project,local", "--strict-mcp-config", "--allowedTools=Edit,Write",
         "--max-turns", "6", "--max-budget-usd", "1",
-        *([] if persist else ["--no-session-persistence"]), *args,
+        *args,
     ]
     if prompt is not None:
         cmd.append(prompt)
@@ -218,6 +216,19 @@ def analyze(events):
     }
 
 
+def copies(events):
+    sid = next((e["session_id"] for e in events if e.get("session_id")), None)
+    path = next(Path.home().glob(f".claude/projects/*/{sid}.jsonl"), None) if sid else None
+    count = 0
+    for line in path.read_text().splitlines() if path else []:
+        e = json.loads(line)
+        content = (e.get("message") or {}).get("content") if e.get("type") == "user" else None
+        if isinstance(content, list):
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+        count += (content or "").count(MARKER)
+    return count
+
+
 def run(name, model, keep, strict):
     root = Path(tempfile.mkdtemp(prefix=f"fg-{name}-"))
     try:
@@ -230,23 +241,23 @@ def run(name, model, keep, strict):
         guard = hook("PreToolUse", 'echo "blocked by foie_gras test" >&2; exit 2', "|".join(BLOCKED)) if strict else {}
         settings = {
             "hooks": {**guard, **spec.get("hooks", {})},
-            "permissions": {"deny": spec.get("deny", [])},
             **spec.get("settings", {}),
         }
         write(root / ".claude/settings.json", json.dumps(settings, indent=2))
         cost, args = 0, ["--tools=Edit,Bash"] * strict + list(spec.get("args", []))
         if "prime" in spec:
             sid = str(uuid.uuid4())
-            events, _ = claude(root, model, spec["prime"], ["--session-id", sid], persist=True)
+            events, _ = claude(root, model, spec["prime"], ["--session-id", sid])
             cost += analyze(events)["cost"]
             args += ["--resume", sid, "--fork-session"]
-        events, stderr = claude(root, model, spec["prompt"], args, persist="prime" in spec, env=spec.get("env"))
+        events, stderr = claude(root, model, spec["prompt"], args, env=spec.get("env"))
         r = analyze(events)
         return {
             "mechanism": name,
             "context": alpha in r["text"],
             "edit": (root / "src/beta.py").read_text() == 'BETA = "edited"\n',
             "reads": sum(c in READS for c in r["calls"]),
+            "copies": copies(events),
             "calls": r["calls"],
             "edit_errors": r["edit_errors"],
             "error": r["error"] or (stderr.strip()[:300] if not events else None),
@@ -277,15 +288,16 @@ def main():
     if a.json:
         print(json.dumps(rows, indent=2))
     failed = False
-    print(f"{'mechanism':30} {'context':8} {'edit':6} {'reads':6} {'cost':7} {'verdict':8} error", file=sys.stderr if a.json else sys.stdout)
+    print(f"{'mechanism':30} {'context':8} {'edit':6} {'reads':6} {'copies':7} {'cost':7} {'verdict':8} error", file=sys.stderr if a.json else sys.stdout)
     for m in a.mechanisms:
         rs = [r for r in rows if r["mechanism"] == m]
-        ok = all((r["context"], r["edit"]) == STRICT[m] for r in rs) if a.strict else None
+        ok = all((r["context"], r["edit"], r["copies"]) == STRICT[m] for r in rs) if a.strict else None
         failed |= ok is False
         err = next((r["edit_errors"][0] if r["edit_errors"] else r["error"] for r in rs if r["edit_errors"] or r["error"]), "")
         print(
             f"{m:30} {sum(r['context'] for r in rs)}/{len(rs):<6} {sum(r['edit'] for r in rs)}/{len(rs):<4} "
-            f"{sum(r['reads'] for r in rs) / len(rs):<6.1f} {sum(r['cost'] for r in rs):<7.3f} "
+            f"{sum(r['reads'] for r in rs) / len(rs):<6.1f} {'/'.join(sorted({str(r['copies']) for r in rs})):<7} "
+            f"{sum(r['cost'] for r in rs):<7.3f} "
             f"{'' if ok is None else 'PASS' if ok else 'FAIL':8} {err.replace(chr(10), ' ')[:60]}",
             file=sys.stderr if a.json else sys.stdout,
         )
