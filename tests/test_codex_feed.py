@@ -92,22 +92,33 @@ class FeedTests(unittest.TestCase):
             self.write(".foie_gras/default", contents)
             with self.assertRaises(feed.FeedError):
                 self.text()
-            self.assertEqual(feed.hook(self.event())["decision"], "block")
+            self.assertEqual(feed.hook(self.event("feed"))["decision"], "block")
         self.write(".foie_gras/default", "src/alpha.py\n")
         for data in (b"\0binary", b"\xffbad"):
             (self.root / "src/alpha.py").write_bytes(data)
             with self.assertRaises((feed.FeedError, UnicodeError)):
                 self.text()
-            self.assertEqual(feed.hook(self.event())["decision"], "block")
+            self.assertEqual(feed.hook(self.event("feed"))["decision"], "block")
         for name in ("../alpha", ".", "..", ""):
             with self.assertRaises(feed.FeedError):
                 self.text(name)
+
+    def test_ordinary_prompts_do_not_access_files_or_transcripts(self):
+        for manifest in ("src/alpha.py\n", "missing.py\n"):
+            self.write(".foie_gras/default", manifest)
+            self.write("session.jsonl", "invalid transcript\n")
+            with patch.object(Path, "open", side_effect=AssertionError("Unexpected file read")), \
+                    patch.object(Path, "stat", side_effect=AssertionError("Unexpected file lookup")):
+                for prompt in ("change alpha", "continue", "feed the output to the parser",
+                               "feedback", "feed.py", "feed\nexplain this code"):
+                    self.assertEqual(feed.hook(self.event(prompt)), {})
 
     def test_empty_list_is_skipped_unless_selected(self):
         for contents in ("", "# no files yet\n"):
             self.write(".foie_gras/default", contents)
             self.assertIsNone(self.text())
             self.assertEqual(feed.hook(self.event()), {})
+            self.assertEqual(feed.hook(self.event("feed"))["decision"], "block")
             self.assertEqual(feed.hook(self.event("feed:default"))["decision"], "block")
         feed.os.environ["FOIE_GRAS_LIST"] = "default"
         self.assertEqual(feed.hook(self.event())["decision"], "block")
@@ -125,23 +136,30 @@ class FeedTests(unittest.TestCase):
         (nested / ".git").mkdir(parents=True)
         self.assertIsNone(feed.manifest_root(nested))
         self.assertEqual(feed.hook(self.event(cwd=nested)), {})
+        self.assertEqual(feed.hook(self.event("feed", nested))["decision"], "block")
         self.assertEqual(feed.hook(self.event("feed:auth", nested))["decision"], "block")
 
-    def test_default_and_named_prompts_keep_task_out_of_context(self):
+    def test_default_and_named_commands_load_context_and_stop_locally(self):
         self.write(".foie_gras/default", "src/alpha.py\n")
         self.write(".foie_gras/beta", "src/beta.py\n")
         self.write("src/beta.py", "BETA\n")
-        for prompt, included, excluded in (("change alpha", "ALPHA", "BETA"),
+        for prompt, included, excluded in (("feed", "ALPHA", "BETA"),
+                                            ("feed:default", "ALPHA", "BETA"),
                                             ("feed:beta", "BETA", "ALPHA")):
             result = feed.hook(self.event(prompt))
             context = result["hookSpecificOutput"]["additionalContext"]
             self.assertIn(included, context)
             self.assertNotIn(excluded, context)
-            self.assertNotIn(prompt, context)
             self.assertNotIn("feed:", context)
-            self.assertEqual(result.get("continue", True), not prompt.startswith("feed:"))
+            self.assertFalse(result["continue"])
 
-    def test_ordinary_followups_skip_files_even_after_compaction_or_resume(self):
+    def test_feed_is_an_alias_for_feed_default(self):
+        expected = feed.hook(self.event("feed:default"))
+        for prompt in ("feed", " feed ", "\nfeed\n\t", " \nfeed:default\n "):
+            self.assertEqual(feed.hook(self.event(prompt)), expected)
+
+    def test_environment_preload_skips_followups_even_after_compaction_or_resume(self):
+        feed.os.environ["FOIE_GRAS_LIST"] = "default"
         self.record_context(feed.hook(self.event()))
         # If the hook tried to read the list again, this would block the prompt.
         (self.root / "src/alpha.py").unlink()
@@ -159,6 +177,7 @@ class FeedTests(unittest.TestCase):
         self.assertIn("NEW_SESSION", feed.hook(event)["hookSpecificOutput"]["additionalContext"])
 
     def test_explicit_lists_reload_and_count_as_the_initial_preload(self):
+        feed.os.environ["FOIE_GRAS_LIST"] = "default"
         self.write(".foie_gras/default", "src/alpha.py\n")
         self.write(".foie_gras/beta", "src/beta.py\n")
         self.write("src/beta.py", "BETA_FIRST\n")
@@ -192,16 +211,18 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(event["prompt"], "explain this code")
         self.record_context(result)
         self.assertEqual(feed.hook(self.event("continue")), {})
-        result = feed.hook(self.event("feed:default"))
-        self.assertFalse(result["continue"])
-        context = result["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("ALPHA", context)
-        self.assertNotIn("BETA", context)
+        for prompt in ("feed", "feed:default"):
+            result = feed.hook(self.event(prompt))
+            self.assertFalse(result["continue"])
+            context = result["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("ALPHA", context)
+            self.assertNotIn("BETA", context)
 
     def test_invalid_environment_selection_blocks_instead_of_loading_default(self):
         for name in ("", "missing", "../default"):
             feed.os.environ["FOIE_GRAS_LIST"] = name
             self.assertEqual(feed.hook(self.event())["decision"], "block")
+            self.assertIn("ALPHA", feed.hook(self.event("feed"))["hookSpecificOutput"]["additionalContext"])
         nested = self.root / "nested"
         (nested / ".git").mkdir(parents=True)
         feed.os.environ["FOIE_GRAS_LIST"] = "default"
@@ -220,6 +241,7 @@ class FeedTests(unittest.TestCase):
         self.assertIn("ALPHA", result["hookSpecificOutput"]["additionalContext"])
 
     def test_only_recorded_hook_context_counts_as_a_preload(self):
+        feed.os.environ["FOIE_GRAS_LIST"] = "default"
         # Environment messages, quoted hook output, and unrelated hook output
         # must not prevent the initial preload.
         entries = [{"type": "response_item", "payload": {"role": role, "content": [
@@ -232,11 +254,14 @@ class FeedTests(unittest.TestCase):
         self.write("session.jsonl", "\n".join(map(json.dumps, entries)) + '\n{"unfinished":')
         self.assertIn("ALPHA", feed.hook(self.event())["hookSpecificOutput"]["additionalContext"])
 
-    def test_ephemeral_exec_without_a_transcript_loads_its_prompt(self):
+    def test_ephemeral_exec_without_a_transcript_loads_only_when_selected(self):
         event = {**self.event(), "transcript_path": None}
+        self.assertEqual(feed.hook(event), {})
+        feed.os.environ["FOIE_GRAS_LIST"] = "default"
         self.assertIn("ALPHA", feed.hook(event)["hookSpecificOutput"]["additionalContext"])
 
     def test_hook_input_never_executes_prompt_text(self):
+        feed.os.environ["FOIE_GRAS_LIST"] = "default"
         task = "Fix Bob's `code`; $(touch unexpected)\nThen explain."
         result = subprocess.run([sys.executable, str(SCRIPT)], cwd=self.root,
                                 input=json.dumps(self.event(task)), capture_output=True, text=True)

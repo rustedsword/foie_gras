@@ -136,11 +136,14 @@ def run(scenario, keep):
         handler = install_hook(root)
         cmd = ["codex", "exec", "-C", str(root), "--ignore-user-config", "--ephemeral",
                "--skip-git-repo-check", "--json", "--dangerously-bypass-hook-trust"]
-        if scenario == "named":
-            task = "feed:beta"
+        commands = {"feed": "feed", "explicit_default": "feed:default", "named": "feed:beta"}
+        if scenario in commands:
+            task = commands[scenario]
         environment = {key: value for key, value in os.environ.items() if key != "FOIE_GRAS_LIST"}
         if scenario in ("selected", "stdin"):
             environment["FOIE_GRAS_LIST"] = "beta"
+        elif scenario in ("preload", "large"):
+            environment["FOIE_GRAS_LIST"] = "default"
         config = provider_config(provider)
         # exec's --ignore-user-config also omits the project hook layer. Test the
         # installed handler inline here; the TUI test exercises project discovery.
@@ -160,21 +163,24 @@ def run(scenario, keep):
         inputs = "\n".join(texts)
         full_content = any(body in text for text in texts)
         named_file = 'BETA = "NAMED_LIST_ONLY"\n' in inputs
+        feed_context = "foie_gras: current files from list" in inputs
         selection_hidden = "FOIE_GRAS_LIST" not in inputs and "feed:" not in inputs
         row = {
             "scenario": scenario, "requests": len(provider.requests),
             "full_default_file": full_content, "named_file": named_file,
+            "feed_context": feed_context,
             "prompt_copies": inputs.count(task),
             "selection_hidden": selection_hidden,
             "ok": (
                 result.returncode == 0 and len(provider.requests) == 1 and not provider.errors
-                and full_content == (scenario not in ("selected", "stdin"))
+                and full_content == (scenario in ("preload", "large"))
                 and named_file == (scenario in ("selected", "stdin"))
+                and feed_context == (scenario in ("preload", "large", "selected", "stdin"))
                 and selection_hidden
                 and inputs.count(task) == 1 and "MOCK_OK_1" in result.stdout
             ),
         }
-        if scenario == "named":
+        if scenario in commands:
             # A standalone selector loads context locally, without calling the
             # model. The TUI test checks the subsequent task sees these files.
             # exec --json omits the hook's UI notice; check the completed local
@@ -209,11 +215,12 @@ def run(scenario, keep):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("scenarios", nargs="*", help="default, selected, stdin, named, large (default: all)")
+    scenarios = ["default", "feed", "explicit_default", "preload", "selected", "stdin", "named", "large"]
+    parser.add_argument("scenarios", nargs="*", help=", ".join(scenarios) + " (default: all)")
     parser.add_argument("--keep", action="store_true", help="Keep fixtures and captured requests")
     args = parser.parse_args()
-    selected = args.scenarios or ["default", "selected", "stdin", "named", "large"]
-    if set(selected) - {"default", "selected", "stdin", "named", "large"}:
+    selected = args.scenarios or scenarios
+    if set(selected) - set(scenarios):
         parser.error("Unknown scenario")
     if not shutil.which("codex"):
         parser.error("Codex CLI is not installed")

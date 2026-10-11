@@ -58,7 +58,7 @@ def run(model, strict, keep):
         temporary = root / "tmp"
         temporary.mkdir()
         result = subprocess.run(cmd, capture_output=True, text=True, input="", timeout=180,
-                                env={**os.environ, "TMPDIR": str(temporary)})
+                                env={**os.environ, "TMPDIR": str(temporary), "FOIE_GRAS_LIST": "default"})
         write(root / "events.jsonl", result.stdout)
         write(root / "stderr.txt", result.stderr)
         events = []

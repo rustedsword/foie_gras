@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review the hook and type normal prompts in a real Codex TUI (isolated, Linux)."""
+"""Review the hook and explicitly load files in a real Codex TUI (isolated, Linux)."""
 
 import argparse
 import fcntl
@@ -67,11 +67,15 @@ def run(timeout, keep, scenario="default"):
             os.close(slave)
         screen = b""
         prompts = [task]
-        selectors = ["feed:beta" if scenario == "named" else None]
+        commands = {"feed": "feed", "explicit_default": "feed:default", "named": "feed:beta", "large": "feed"}
+        selectors = [commands.get(scenario)]
         if scenario == "inline":
             selectors[0] = "feed:beta MUST_STAY_LOCAL_" + secrets.token_hex(12)
-        expected = [("beta", named_body) if scenario in ("named", "selected") else ("default", body)]
-        expected_counts = [1]
+        expected = [
+            ("beta", named_body) if scenario in ("named", "selected")
+            else ("default", body) if scenario in commands else None
+        ]
+        expected_counts = [int(expected[0] is not None)]
         if scenario in ("named", "selected"):
             prompts.append("FOLLOWUP_" + secrets.token_hex(12))
             selectors.append(None)
@@ -79,22 +83,23 @@ def run(timeout, keep, scenario="default"):
             expected_counts.append(1)
         if scenario == "selected":
             prompts.append("DEFAULT_" + secrets.token_hex(12))
-            selectors.append("feed:default")
+            selectors.append("feed")
             expected.append(("default", body))
             expected_counts.append(2)
         if scenario == "refresh":
             prompts.extend([
+                "FED_" + secrets.token_hex(12),
                 "FOLLOWUP_" + secrets.token_hex(12),
                 "REFRESH_" + secrets.token_hex(12),
                 "SWITCH_" + secrets.token_hex(12),
                 "AFTER_SWITCH_" + secrets.token_hex(12),
             ])
-            selectors.extend([None, "feed:default", "feed:beta", None])
+            selectors.extend(["feed", None, "feed:default", "feed:beta", None])
             expected.extend([
-                ("default", body), ("default", body.replace(marker, "UPDATED_" + marker)),
+                ("default", body), ("default", body), ("default", body.replace(marker, "UPDATED_" + marker)),
                 ("beta", named_body), ("beta", named_body),
             ])
-            expected_counts.extend([1, 2, 3, 3])
+            expected_counts.extend([1, 1, 2, 3, 3])
         stage, sent = 0, 0
         command_output_start = 0
         reviewed, early_request = False, False
@@ -108,7 +113,7 @@ def run(timeout, keep, scenario="default"):
 
         def next_prompt():
             nonlocal stage, sent, command_output_start
-            if scenario == "refresh" and sent == 1:
+            if scenario == "refresh" and sent == 2:
                 write(root / "alpha.py", body.replace(marker, "UPDATED_" + marker))
             if selectors[sent]:
                 command_output_start = len(screen)
@@ -149,7 +154,7 @@ def run(timeout, keep, scenario="default"):
             elif stage == 3 and time.monotonic() - quiet > 0.5:
                 next_prompt()
             elif stage == 5 and time.monotonic() - quiet > 0.5:
-                notice = (b"Submit feed:NAME alone" if scenario == "inline"
+                notice = (b"Submit feed or feed:NAME alone" if scenario == "inline"
                           else b"Enter your task normally.")
                 if notice in screen[command_output_start:]:
                     submit(prompts[sent])
@@ -169,14 +174,22 @@ def run(timeout, keep, scenario="default"):
         ] for request in provider.requests]
         counts = [len(blocks) for blocks in contexts]
         contents_match = len(contexts) == len(expected) and all(
-            blocks and contents in blocks[-1]
-            and f'foie_gras: current files from list "{name}".' in blocks[-1]
-            for blocks, (name, contents) in zip(contexts, expected)
+            not blocks if latest is None else (
+                blocks and latest[1] in blocks[-1]
+                and f'foie_gras: current files from list "{latest[0]}".' in blocks[-1]
+            )
+            for blocks, latest in zip(contexts, expected)
         )
         all_requests = json.dumps(provider.requests + provider.title_requests)
         selectors_hidden = all(text not in all_requests for text in (
             "feed:", "FOIE_GRAS_LIST", "MUST_STAY_LOCAL_",
-        ))
+        )) and all(
+            block.get("text", "").strip() != "feed"
+            for request in provider.requests + provider.title_requests
+            for item in request.get("input", [])
+            for block in item.get("content", [])
+            if isinstance(block, dict)
+        )
         local_notice_hidden = "Enter your task normally." not in all_requests
         row = {
             "scenario": scenario, "requests": len(provider.requests),
@@ -222,12 +235,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--timeout", type=float, default=35)
     parser.add_argument("--keep", action="store_true")
-    parser.add_argument("scenarios", nargs="*", help="default, named, selected, large, refresh, inline (default: all)")
+    available = ["default", "feed", "explicit_default", "named", "selected", "large", "refresh", "inline"]
+    parser.add_argument("scenarios", nargs="*", help=", ".join(available) + " (default: all)")
     args = parser.parse_args()
     if not shutil.which("codex") or not shutil.which("bwrap"):
         parser.error("This Linux test requires Codex CLI and bubblewrap (bwrap)")
-    scenarios = args.scenarios or ["default", "named", "selected", "large", "refresh", "inline"]
-    if set(scenarios) - {"default", "named", "selected", "large", "refresh", "inline"}:
+    scenarios = args.scenarios or available
+    if set(scenarios) - set(available):
         parser.error("Unknown scenario")
     failed = False
     for scenario in scenarios:

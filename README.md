@@ -15,7 +15,7 @@ make install PREFIX=$HOME/.local    # or copy foie-gras anywhere on your PATH
 foie-gras path/to/repo
 ```
 
-It writes the Claude Code skill to `.claude/skills/feed/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun it to update. Codex needs Python 3.10+; approve the hook when Codex asks, or in `/hooks`.
+It writes the Claude Code skill to `.claude/skills/feed/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun the updated script to upgrade the adapters, preserving your file lists. Codex needs Python 3.10+; approve the hook when Codex asks, or in `/hooks`.
 
 `make` rebuilds `foie-gras` from `foie-gras.in` and the adapter sources; commit it with them.
 
@@ -30,41 +30,39 @@ docs/auth.md
 tests/test_login.py
 ```
 
-For more lists, add files next to `default`, e.g. `.foie_gras/auth`. A plain `.foie_gras` file also works as the default list. An empty list loads nothing. Every entry must match a file: otherwise the prompt doesn't run, and the error names the entry.
+For more lists, add files next to `default`, e.g. `.foie_gras/auth`. A plain `.foie_gras` file also works as the default list. Every entry must match a file: otherwise the requested load fails, and the error names the entry.
 
 ## Codex CLI
 
-Type your prompts normally:
+Submit a feed command by itself, then enter your task:
 
-| You type inside Codex | Files loaded with that prompt |
+| Command | File list |
 |-|-|
-| `Fix the login bug` (first prompt) | `.foie_gras/default` |
-| Ordinary follow-up | Nothing added |
-| `feed:auth` (submit alone) | `.foie_gras/auth`; then enter your task |
-| `feed:default` (submit alone) | `.foie_gras/default` again; then enter your task |
+| `feed` or `feed:default` | `.foie_gras/default` |
+| `feed:auth` | `.foie_gras/auth` |
 
-Files load once at the start of a session. Submit `feed:NAME` alone whenever you want to load another list or refresh one already loaded. The hook consumes that command locally without a model call, then your next ordinary prompt uses the loaded files. The model receives the files and your task, with no selector command or instructions about selectors. Ordinary follow-ups do not reload files. No skill or special launcher is needed.
+Each command reads fresh file contents into the session. Repeat it to refresh a list, or use `feed:NAME` to load another.
 
-For non-interactive work, choose the initial list before starting Codex:
+For an initial preload, choose a list before starting Codex:
 
 ```sh
-codex exec "Fix the login bug"                         # default list
+FOIE_GRAS_LIST=default codex exec "Fix the login bug"   # default list
 FOIE_GRAS_LIST=auth codex exec "Fix the login bug"      # auth list
 ```
 
-`FOIE_GRAS_LIST` also works with interactive `codex`. It selects the initial preload without changing your prompt.
+`FOIE_GRAS_LIST` also works with interactive `codex`, tasks read from stdin (`codex exec -`), and `--ephemeral`. Feed commands take precedence over the environment selection.
 
-Verified with a real edit while file-reading tools were blocked: Codex used only `apply_patch`. Setup, source references, and reproducible tests: [docs/codex.md](docs/codex.md).
+Implementation details, source references, and tests: [docs/codex.md](docs/codex.md).
 
 ## Claude Code
 
 | You type | Result |
 |-|-|
 | `/feed <prompt>` | the list is attached to your prompt, in one turn |
-| `/feed` | only attaches; Claude answers `Ready.` |
+| `/feed` | attaches files; Claude answers `Ready.` |
 | `claude "/feed <prompt>"` | the same, straight from the shell |
 
-For named lists, run `.claude/skills/feed/feed.sh --sync` to get `/feed-auth`. Rerun it after adding or removing a list; editing one needs nothing. To get `/feed` in every project, copy `claude/skills/feed` into `~/.claude/skills/` instead.
+For named lists, run `.claude/skills/feed/feed.sh --sync` to get `/feed-auth`. Rerun it after adding or removing a list. To get `/feed` in every project, copy `claude/skills/feed` into `~/.claude/skills/`.
 
 To see it work, run `claude` in [`example/`](example/).
 

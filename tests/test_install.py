@@ -47,8 +47,8 @@ class InstallTests(unittest.TestCase):
         return [handler["command"] for group in config["hooks"]["UserPromptSubmit"]
                 for handler in group["hooks"]]
 
-    def codex_hook(self):
-        event = {"hook_event_name": "UserPromptSubmit", "prompt": "fix it",
+    def codex_hook(self, prompt="fix it"):
+        event = {"hook_event_name": "UserPromptSubmit", "prompt": prompt,
                  "cwd": str(self.root / "src"), "transcript_path": None}
         result = subprocess.run(["sh", "-c", COMMAND], cwd=self.root / "src", env=self.environment,
                                 input=json.dumps(event), capture_output=True, text=True, check=True)
@@ -66,7 +66,8 @@ class InstallTests(unittest.TestCase):
         result = self.claude_feed(check=False)
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertIn("'src/missing.py'", result.stderr)
-        self.assertIn("'src/missing.py'", self.codex_hook()["reason"])
+        self.assertEqual(self.codex_hook(), {})
+        self.assertIn("'src/missing.py'", self.codex_hook("feed")["reason"])
 
     def test_installs_both_agents_with_an_empty_default_list(self):
         self.assertIn(str(self.root), self.install().stdout)
@@ -75,7 +76,11 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.codex_hook(), {})
         self.assertEqual(self.claude_feed(), "")
         (self.root / ".foie_gras/default").write_text("src/*.py\n")
-        self.assertIn('ALPHA = "first"', self.codex_hook()["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(self.codex_hook(), {})
+        result = self.codex_hook("feed")
+        self.assertIn('ALPHA = "first"', result["hookSpecificOutput"]["additionalContext"])
+        self.assertFalse(result["continue"])
+        self.assertEqual(self.codex_hook("feed:default"), result)
         self.assertEqual(self.claude_feed(), "@src/alpha.py\n")
 
     def test_rerun_keeps_lists_and_other_hooks_and_replaces_its_own(self):
@@ -93,12 +98,18 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((self.root / ".foie_gras/default").read_text(), "src/alpha.py\n")
         self.assertEqual(self.handlers(), ["echo custom", COMMAND])
         self.assertTrue((self.root / ".claude/skills/feed-auth/SKILL.md").is_file())
+        self.assertEqual(self.codex_hook(), {})
+        self.assertIn('ALPHA = "first"', self.codex_hook("feed")["hookSpecificOutput"]["additionalContext"])
 
     def test_plain_list_file_is_kept(self):
         (self.root / ".foie_gras").write_text("src/alpha.py\n")
         self.install()
         self.assertEqual((self.root / ".foie_gras").read_text(), "src/alpha.py\n")
         self.assertEqual(self.claude_feed(), "@src/alpha.py\n")
+        self.assertEqual(self.codex_hook(), {})
+        result = self.codex_hook("feed")
+        self.assertIn('ALPHA = "first"', result["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(result, self.codex_hook("feed:default"))
 
     def test_refuses_a_directory_outside_git(self):
         with tempfile.TemporaryDirectory(prefix="fg-install-") as directory:

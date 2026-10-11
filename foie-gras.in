@@ -39,4 +39,4 @@ install_list
 install_claude
 install_codex
 echo "foie_gras installed in $root"
-echo "List files in .foie_gras/default. Claude Code: /feed <prompt>. Codex: approve the hook in /hooks, then prompt as usual."
+echo "List files in .foie_gras/default. Claude Code: /feed <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."

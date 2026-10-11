@@ -109,7 +109,7 @@ FOIE_GRAS_EOF
 install_codex() {
   put .codex/foie_gras.py <<'FOIE_GRAS_EOF'
 #!/usr/bin/env python3
-"""Preload files once per Codex session; use feed:NAME alone to load a list."""
+"""Load files on request with feed or feed:NAME, or opt in with FOIE_GRAS_LIST."""
 
 import argparse
 import json
@@ -225,27 +225,25 @@ def hook(event):
         return {}
     prompt = event.get("prompt", "")
     match = re.match(r"\s*feed:(\S*)(?:\s|$)", prompt)
-    name = match[1] if match else os.environ.get("FOIE_GRAS_LIST", "default")
+    command = match is not None or prompt.strip() == "feed"
+    name = match[1] if match else ("default" if command else os.environ.get("FOIE_GRAS_LIST"))
+    if name is None:
+        return {}
     try:
         if match and prompt[match.end():].strip():
-            raise FeedError("Submit feed:NAME alone, then enter your task separately")
-        if not match and already_loaded(event.get("transcript_path")):
+            raise FeedError("Submit feed or feed:NAME alone, then enter your task separately")
+        if not command and already_loaded(event.get("transcript_path")):
             return {}
-        explicit = match or "FOIE_GRAS_LIST" in os.environ
         root = manifest_root(event["cwd"])
         if root is None:
-            if explicit:
-                raise FeedError("No .foie_gras manifest found")
-            return {}
+            raise FeedError("No .foie_gras manifest found")
         context = file_context(root, name)
         if context is None:
-            if explicit:
-                raise FeedError(f"The {name!r} manifest contains no files")
-            return {}
+            raise FeedError(f"The {name!r} manifest contains no files")
         result = {"hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit", "additionalContext": context,
         }}
-        if match:
+        if command:
             # Keep the file context for the next turn, but consume this command
             # locally: Codex must not record it as a user message or call a model.
             result.update({"continue": False,
@@ -310,4 +308,4 @@ install_list
 install_claude
 install_codex
 echo "foie_gras installed in $root"
-echo "List files in .foie_gras/default. Claude Code: /feed <prompt>. Codex: approve the hook in /hooks, then prompt as usual."
+echo "List files in .foie_gras/default. Claude Code: /feed <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."

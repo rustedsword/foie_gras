@@ -1,122 +1,45 @@
 # Codex CLI
 
-Use Codex normally. A `UserPromptSubmit` hook reads the files in
-`.foie_gras/default` and supplies their complete contents with your first prompt,
-before the model runs. Submit `feed:NAME` alone to load another list or refresh
-one already loaded, then enter your task normally.
+Implementation notes and verification. See the README for
+[installation](../README.md#install) and [usage](../README.md#codex-cli).
 
-## Setup
+## Hook lifecycle
 
-```sh
-foie-gras path/to/repo
-cd path/to/repo && codex
-```
+The adapter uses `UserPromptSubmit`, with `features.hooks` enabled. Tested with
+Codex CLI 0.162.1.
 
-Review and trust the foie_gras hook when Codex asks, or open `/hooks`. This is
-Codex's built-in review for local hooks. After that, type tasks in the ordinary
-interactive session:
+A feed command returns the files in `hookSpecificOutput.additionalContext`,
+alongside `continue: false` and a confirmation in `stopReason`. Codex records the
+context, displays the confirmation, and completes the submission locally. The
+next task reaches the model together with the recorded context.
 
-```text
-Fix the login bug
-```
+For an environment-selected preload, the hook scans the transcript for a
+developer message starting with `foie_gras: current files from list `. That
+record marks the session as preloaded across resume and compaction. Fed context
+remains in the conversation until Codex compacts it.
 
-On the first prompt, that loads `.foie_gras/default`. To load `.foie_gras/auth`,
-submit this command by itself:
-
-```text
-feed:auth
-```
-
-The hook loads the files and stops that submission before a model call. Codex
-shows a local message that the files are loaded. Now submit your task normally:
-
-```text
-Fix the login bug
-```
-
-The model receives the file contents and your task. It does not receive the
-selector command, the local confirmation, or instructions about `feed:NAME`.
-Codex's prompt hook can attach context or stop a submission, but cannot rewrite
-the submitted text. For that reason, `feed:auth Fix the login bug` is rejected
-locally with instructions to submit the command and task separately.
-
-Ordinary follow-ups do not reload any files. Use `feed:default` to explicitly
-reload the default list, or `feed:auth` to reload the named list. Every explicit
-load reads fresh contents. If you start with `feed:auth`, that replaces
-the automatic default preload. Adding or editing a list needs no sync or restart;
-use `feed:NAME` to load it.
-
-The hook checks Codex's transcript for an earlier preload, so resuming a session
-does not reload files either. It needs no separate state file. Existing context
-remains in the conversation until Codex compacts it; use `feed:NAME` if you want
-to restore fresh file contents afterward. One-shot `codex exec --ephemeral`
-runs have no transcript and load files with their single prompt.
-
-Requires Python 3.10+ and a current Codex CLI with `UserPromptSubmit` hooks.
-Tested with 0.162.1. Hooks are enabled by default; if you have explicitly disabled
-them, enable `features.hooks` in your Codex configuration.
-
-`foie-gras` writes `codex/feed.py` to `.codex/foie_gras.py` and adds one handler
-to the project's `.codex/hooks.json` that runs it from the Git root, preserving
-other hooks. The project does not depend on the foie_gras checkout, and rerunning
-replaces the handler instead of adding another. To run this checkout's `feed.py`
-by absolute path instead, use `python3 codex/feed.py --install path/to/project`.
-There are no skills, generated commands, or session launchers.
-
-To remove the integration, remove its handler from `.codex/hooks.json`, or
-disable it in `/hooks`. Leave any other hooks in place.
-
-## Non-interactive use
-
-With the project's hook installed and trusted, a normal `codex exec` request
-loads the default files before sending the task to the model:
-
-```sh
-codex exec "Fix the login bug"
-```
-
-Choose another list with `FOIE_GRAS_LIST`:
-
-```sh
-FOIE_GRAS_LIST=auth codex exec "Fix the login bug"
-```
-
-The hook reads `.foie_gras/auth` and its files. Codex sends the complete contents
-with your unchanged task in the first model request. No selector syntax or explanation
-is added to the prompt. Missing or invalid lists block the task instead of
-falling back to `default`.
-
-This also works with a task read from stdin (`codex exec -`), with `--ephemeral`,
-and with interactive `codex`. The variable chooses the initial preload only;
-resuming an already preloaded session does not reload files. In interactive
-sessions, a standalone `feed:NAME` command explicitly loads that list regardless
-of the environment selection.
-
-Do not use `codex exec "feed:auth"` to run a task: that command only loads context
-locally and exits without calling the model. Use the environment variable and
-your actual task for a single non-interactive run.
+The handler in `.codex/hooks.json` resolves `.codex/foie_gras.py` from the Git
+root. The installer identifies its handler by `statusMessage` and updates it in
+place. For adapter development, `python3 codex/feed.py --install path/to/project`
+points a project's handler at this checkout. Manage the handler through `/hooks`
+or `.codex/hooks.json`.
 
 ## File handling
 
 The hook searches the session directory and its parents for `.foie_gras`,
-stopping at a Git repository boundary. Paths in a manifest are relative to its
-directory; file labels sent to Codex are absolute, so starting in a subdirectory
-works. A plain `.foie_gras` file also serves as the default list.
+stopping at a Git repository boundary. Relative entries resolve from the
+directory containing `.foie_gras`; file labels sent to Codex are absolute.
 
-Each line is a file, glob (including `**`), or directory. Blank lines and comments
-beginning with `#` are ignored. Directories include their files recursively,
-including hidden files, without following nested directory symlinks. Spaces in
-paths work, and duplicate files are loaded once.
+Recursive directory expansion includes hidden files. Resolved paths identify
+duplicate files, which are loaded once.
 
-Files must contain UTF-8 text. Missing matches, binary files, and read errors
-block the prompt with an explanation. If there is no `.foie_gras` or the list is
-empty, ordinary prompts proceed unchanged; an explicit `feed:NAME` or
-`FOIE_GRAS_LIST` selection reports an error.
+Files must contain UTF-8 text. Absent or empty lists, binary files, and read
+errors produce a local error message and block the requested load.
 
 The hook preserves complete contents and line endings, with file boundaries and
-final-newline information. Its `additionalContextLimit: 0` setting prevents
-Codex from replacing large hook output with a short preview. The model's context
-window still applies. No separate turn or model tool call is needed to load files.
+final-newline information. Its `additionalContextLimit: 0` setting passes the
+complete output to the model. Selected contents must fit the model's context
+window.
 
 ## Source verification and tests
 
@@ -138,16 +61,12 @@ python3 tests/codex_tui.py
 python3 tests/codex_live.py --strict
 ```
 
-The first two need only Python, Git and make. The next two capture actual Codex
-requests with a local mock provider, without model inference. They check default
-and named lists, full large-file contents, and one copy of the task. The TUI test
-reviews the installed hook through Codex's own UI, checks that ordinary
-follow-ups add no file contents, and verifies explicit refreshes and list
-changes in the same session. It checks that selector commands make no model
-request and stay out of subsequent requests, including title generation. It also
-checks that an old-style inline selector and task are rejected without reaching
-the model. The TUI test requires Linux and bubblewrap
-(`bwrap`) to isolate Codex state without changing your configuration.
+The first two need Python, Git and make. The next two capture actual Codex
+requests with a local mock provider. They verify command parsing, environment
+selection, complete large-file contents, and one copy of the task. The TUI test
+also reviews the hook through Codex's UI and exercises loading, refreshing, and
+switching lists within a session. It requires Linux and bubblewrap (`bwrap`) for
+an isolated Codex environment.
 
 The live test uses your Codex account in a temporary fixture. It preloads two
 files with random values, asks Codex to edit one and report the value in the
@@ -158,5 +77,4 @@ other, and blocks file-reading tools with a test-only guard. The verified result
 ```
 
 Add `--keep` to integration tests to retain fixtures and logs. The live test also
-accepts `--model MODEL`. During normal work, the model can still choose to read
-files, for example to inspect additional files outside the selected list.
+accepts `--model MODEL`.
