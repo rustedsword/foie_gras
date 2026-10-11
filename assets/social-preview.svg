@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">foie_gras</title>
+  <desc id="desc">A pencil illustration of a goose being fed C code through a funnel, next to the project name and the tagline: force-feed files to your agent.</desc>
+  <rect width="1280" height="640" fill="#f8f6ef"/>
+  <image xlink:href="goose.jpg" x="24" y="20" width="720" height="600"/>
+  <text x="790" y="292" fill="#3e3c36" font-family="Liberation Mono, monospace" font-size="64" font-weight="700">foie_gras</text>
+  <text x="794" y="352" fill="#625d53" font-family="Liberation Sans, sans-serif" font-size="30">force-feed files</text>
+  <text x="794" y="392" fill="#625d53" font-family="Liberation Sans, sans-serif" font-size="30">to your agent</text>
+</svg>

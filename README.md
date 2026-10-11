@@ -1,5 +1,9 @@
 # foie_gras: force-feed files to your agent
 
+<p align="center">
+  <img src="assets/goose.jpg" alt="A pencil illustration of a goose being fed C code through a funnel, beside programming books and a bowl labeled FOIE GRAS" width="480" height="400">
+</p>
+
 You ask an agent to fix a bug, then wait while it searches the repo and reads files you already knew it would need. Open a new session, and it does the same thing again.
 
 Define a list of files, and foie_gras loads their contents into the model's context before it gets your first prompt. Unlike listing paths in `AGENTS.md` or `CLAUDE.md`, this ensures the model can't refuse or "forget" to load them.
