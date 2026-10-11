@@ -26,15 +26,15 @@ export const register: Register = on => {
 
   on('turn.step', async function* ($, e, next) {
     if (e.index !== 0 || e.agentId !== undefined || !pending.length) return yield* next(e)
-    const files = pending
+    const inputs = pending.map(file_path => ({ file_path, allow_large: true }))
     pending = []
     const run = Date.now().toString(36)
-    for (const [index, file_path] of files.entries()) {
+    for (const [index, input] of inputs.entries()) {
       yield { kind: 'tool', index, id: `${ID}_${run}_${index}`, name: 'Read' }
-      yield { kind: 'input', index, json: JSON.stringify({ file_path }) }
+      yield { kind: 'input', index, json: JSON.stringify(input) }
     }
     yield { kind: 'stop', stopReason: 'tool_use', usage: null }
-    const toolUses = files.map(file_path => ({ name: 'Read', input: { file_path } }))
+    const toolUses = inputs.map(input => ({ name: 'Read', input }))
     return { turnId: e.turnId, index: e.index, answer: '', toolUses, stopReason: 'tool_use', usage: null }
   })
 }

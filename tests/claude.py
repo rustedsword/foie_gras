@@ -132,10 +132,6 @@ def adapter_large(root, task):
     return spec
 
 
-def adapter_large_raised(root, task):
-    return {**adapter_large(root, task), "env": {"CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "100000"}}
-
-
 def resume_fork(root, task):
     return {"prompt": task, "prime": MENTIONS + " Reply with OK only."}
 
@@ -154,9 +150,8 @@ MECHANISMS = {f.__name__: f for f in [
     adapter_feed,
     adapter_list,
     adapter_large,
-    adapter_large_raised,
 ]}
-OPTIONAL = {"adapter_large", "adapter_large_raised"}
+OPTIONAL = {"adapter_large"}
 MARKER = "ALPHA=<value>"
 STRICT = {
     "baseline": (False, False, 1),
@@ -171,12 +166,11 @@ STRICT = {
     "resume_fork": (True, False, 1),
     "adapter_feed": (True, True, 1),
     "adapter_list": (True, True, 1),
-    "adapter_large": (False, True, 1),
-    "adapter_large_raised": (True, True, 1),
+    "adapter_large": (True, True, 1),
 }
 
 
-def claude(root, model, prompt, args=(), env=None):
+def claude(root, model, prompt, args=()):
     cmd = [
         "claude", "-p", "--model", model, "--output-format", "stream-json", "--verbose",
         "--setting-sources", "project,local", "--strict-mcp-config", "--allowedTools=Edit,Write",
@@ -185,7 +179,7 @@ def claude(root, model, prompt, args=(), env=None):
     ]
     if prompt is not None:
         cmd.append(prompt)
-    env = {**{k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}, **(env or {})}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
     p = subprocess.run(cmd, cwd=root, env=env, input="", capture_output=True, text=True, timeout=900)
     events = []
     for line in p.stdout.splitlines():
@@ -254,7 +248,7 @@ def run(name, model, keep, strict):
             events, _ = claude(root, model, spec["prime"], ["--session-id", sid])
             cost += analyze(events)["cost"]
             args += ["--resume", sid, "--fork-session"]
-        events, stderr = claude(root, model, spec["prompt"], args, env=spec.get("env"))
+        events, stderr = claude(root, model, spec["prompt"], args)
         r = analyze(events)
         return {
             "mechanism": name,

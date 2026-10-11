@@ -49,9 +49,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.reply(b"{}", "application/json")
 
     def do_POST(self):
-        request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        body = self.rfile.read(int(self.headers["Content-Length"]))
         if "count_tokens" in self.path:
-            return self.reply(b'{"input_tokens": 1}', "application/json")
+            return self.reply(json.dumps({"input_tokens": len(body) // 4}).encode(), "application/json")
+        request = json.loads(body)
         self.server.requests.append(request)
         usage = {"input_tokens": 1, "output_tokens": 1}
         message = {"id": "msg_mock", "type": "message", "role": "assistant", "model": request.get("model", "mock"),
@@ -129,6 +130,17 @@ def check(scenario, root, api):
         output = printed(root, "feed" if scenario == "alone" else f"feed: {TASK}")
         expected = "put your task after feed:" if scenario == "alone" else "No files matched 'src/missing.py'"
         return {"requests": len(api.requests), "ok": not api.requests and expected in output}
+    if scenario == "large":
+        # Past Read's 25k-token limit, which cuts silently, and its 256 KB limit, which errors.
+        sizes = {"big.py": 1000, "huge.py": 2000}
+        for name, count in sizes.items():
+            write(root / "src" / name, "".join(f'{name[:-3].upper()}_{i} = "{"x" * 140}"\n' for i in range(count)))
+        write(root / ".foie_gras/default", "".join(f"src/{name}\n" for name in sizes))
+        printed(root, f"feed: {TASK}")
+        row = fed(api, TASK, list(sizes))
+        sent = json.dumps(api.requests)
+        whole = all(json.dumps(f"{count}\t{name[:-3].upper()}_{count - 1} = ")[1:-1] in sent for name, count in sizes.items())
+        return {**row, "whole": whole, "ok": row["ok"] and whole}
     if scenario == "option":
         hooks = (root / ".codex/hooks.json").read_text()
         output = printed(root, f"feed:--install {TASK}")
@@ -177,7 +189,7 @@ def run(scenario, keep):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    scenarios = ["default", "named", "spaces", "plain", "alone", "missing", "option", "resume", "interactive"]
+    scenarios = ["default", "named", "spaces", "large", "plain", "alone", "missing", "option", "resume", "interactive"]
     parser.add_argument("scenarios", nargs="*", help=", ".join(scenarios) + " (default: all)")
     parser.add_argument("--keep", action="store_true", help="Keep fixtures and captured requests")
     args = parser.parse_args()

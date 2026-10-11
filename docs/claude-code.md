@@ -65,7 +65,7 @@ An agent's `initialPrompt` would run at startup, but it sends a turn before you 
 
 - The mod API is early access in Claude Code 2.1.296 and may change between releases.
 - Claude Code skips the mod until you trust the workspace; after accepting the trust dialog, restart or run `/reload-plugins`.
-- Read's limits apply. A file over 25k tokens comes back as an error, and Claude reads it in parts; raise `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`, e.g. `"env": {"CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "100000"}` in settings. Reading a file outside the project asks for permission, as Claude's own Read would.
+- The Read calls pass `allow_large: true`, so a file comes back whole, up to what fits in the context. Without it, Read errors past 256 KB and silently cuts a file past 25k tokens. Reading a file outside the project asks for permission, as Claude's own Read would.
 - PreToolUse hooks see the mod's Read calls; their `tool_use_id` starts with `toolu_foiegras`.
 - `feed:` is refused while Claude is working; send it once the turn has finished.
 - Fed files stay in context for the rest of the session, until compaction; keep lists task-sized.
@@ -80,7 +80,7 @@ python3 tests/claude_tui.py example              # the same in example/, with yo
 python3 tests/claude.py                          # re-reads, Sonnet, all mechanisms
 python3 tests/claude.py --model opus --repeat 3
 python3 tests/claude.py --strict --model haiku   # verdicts on context, read and prompt copies; exit 1 on mismatch
-python3 tests/claude.py --strict --model haiku adapter_large adapter_large_raised
+python3 tests/claude.py --strict --model haiku adapter_large
 ```
 
 Each run uses a throwaway git repo and purges its Claude Code state afterwards. User settings and MCP servers are skipped. `claude.py` and `claude_mock.py`'s `-p` runs load the mod with `--plugin-dir`, because a throwaway directory is not a trusted workspace. `claude_tui.py` and `claude_mock.py interactive` check that nothing is sent before they type, and accept the trust dialog only for their own temp dir, so the mod loads as installed. The `example` scenario runs in place with your user settings and deletes its transcript. Per mechanism a run costs about $0.002 on Haiku, $0.03 on Sonnet and $0.06 on Opus.
