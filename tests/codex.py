@@ -6,7 +6,6 @@ import http.server
 import json
 import os
 import secrets
-import sys
 import shutil
 import subprocess
 import tempfile
@@ -14,7 +13,7 @@ import threading
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "codex/feed.py"
+REPO = Path(__file__).resolve().parents[1]
 
 
 def write(path, text):
@@ -23,8 +22,9 @@ def write(path, text):
 
 
 def install_hook(root):
-    subprocess.run([sys.executable, str(SCRIPT), "--install", str(root)],
-                   capture_output=True, text=True, check=True)
+    subprocess.run(["make", "-s", "-C", str(REPO), "foie-gras"], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run([str(REPO / "foie-gras"), str(root)], capture_output=True, text=True, check=True)
     return json.loads((root / ".codex/hooks.json").read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
 
 

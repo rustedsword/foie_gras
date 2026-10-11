@@ -58,6 +58,7 @@ python3 tests/claude.py --strict --model haiku   # verdicts on context, read and
 python3 tests/claude.py --strict --model haiku adapter_large adapter_large_raised
 python3 tests/claude_tui.py                      # types /feed <task> into a real interactive session
 python3 tests/claude_tui.py example              # the same in example/, with your settings
+python3 tests/test_install.py                    # the built foie-gras in a throwaway git repo, no agents
 ```
 
 Each run uses a throwaway git repo and purges its Claude Code state afterwards. User settings and MCP servers are skipped. `claude_tui.py` checks that nothing is sent before it types, and accepts the trust dialog only for its own temp dir. The `example` scenario runs in place with your user settings and deletes its transcript. Per mechanism a run costs about $0.002 on Haiku, $0.03 on Sonnet and $0.06 on Opus.

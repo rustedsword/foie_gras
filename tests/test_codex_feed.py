@@ -87,8 +87,8 @@ class FeedTests(unittest.TestCase):
         with self.assertRaises(feed.FeedError):
             self.text("beta")
 
-    def test_missing_empty_binary_and_invalid_lists_block(self):
-        for contents in ("missing.py\n", "# empty\n", "src/alpha.py\nmissing.py\n"):
+    def test_missing_binary_and_invalid_lists_block(self):
+        for contents in ("missing.py\n", "src/alpha.py\nmissing.py\n"):
             self.write(".foie_gras/default", contents)
             with self.assertRaises(feed.FeedError):
                 self.text()
@@ -102,6 +102,15 @@ class FeedTests(unittest.TestCase):
         for name in ("../alpha", ".", "..", ""):
             with self.assertRaises(feed.FeedError):
                 self.text(name)
+
+    def test_empty_list_is_skipped_unless_selected(self):
+        for contents in ("", "# no files yet\n"):
+            self.write(".foie_gras/default", contents)
+            self.assertIsNone(self.text())
+            self.assertEqual(feed.hook(self.event()), {})
+            self.assertEqual(feed.hook(self.event("feed:default"))["decision"], "block")
+        feed.os.environ["FOIE_GRAS_LIST"] = "default"
+        self.assertEqual(feed.hook(self.event())["decision"], "block")
 
     def test_source_fences_crlf_and_missing_final_newline_are_preserved(self):
         body = b"alpha\r\n```\r\n````\r\nomega"
@@ -239,7 +248,8 @@ class FeedTests(unittest.TestCase):
         pinned = shlex.join(["/usr/lib/python-exec/python3.13/python3", str(SCRIPT)])
         original = {"description": "user hooks", "hooks": {
             "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "echo custom"}]},
-                                 {"hooks": [{"type": "command", "command": pinned}]}],
+                                 {"hooks": [{"type": "command", "command": pinned,
+                                             "statusMessage": "Reading foie_gras files"}]}],
             "Stop": [{"hooks": [{"type": "command", "command": "echo stop"}]}],
         }}
         path = self.write(".codex/hooks.json", json.dumps(original))

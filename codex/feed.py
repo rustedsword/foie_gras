@@ -84,7 +84,7 @@ def file_context(root, name):
         block += ("" if contents.endswith("\n") else "\n") + fence + "\n"
         parts.append(block)
     if len(parts) == 1:
-        raise FeedError(f"The {name!r} manifest contains no files")
+        return None
     return "".join(parts)
 
 
@@ -121,12 +121,17 @@ def hook(event):
             raise FeedError("Submit feed:NAME alone, then enter your task separately")
         if not match and already_loaded(event.get("transcript_path")):
             return {}
+        explicit = match or "FOIE_GRAS_LIST" in os.environ
         root = manifest_root(event["cwd"])
         if root is None:
-            if match or "FOIE_GRAS_LIST" in os.environ:
+            if explicit:
                 raise FeedError("No .foie_gras manifest found")
             return {}
         context = file_context(root, name)
+        if context is None:
+            if explicit:
+                raise FeedError(f"The {name!r} manifest contains no files")
+            return {}
         result = {"hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit", "additionalContext": context,
         }}
@@ -141,9 +146,14 @@ def hook(event):
 
 
 def install(project):
-    path = Path(project).resolve() / ".codex/hooks.json"
+    root = Path(project).resolve()
+    path = root / ".codex/hooks.json"
     config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    script = shlex.quote(str(Path(__file__).resolve()))
+    script = Path(__file__).resolve()
+    if script.is_relative_to(root):
+        script = f'"$(git rev-parse --show-toplevel)/{script.relative_to(root)}"'
+    else:
+        script = shlex.quote(str(script))
     handler = {
         "type": "command", "command": f"python3 {script}", "additionalContextLimit": 0,
         "timeout": 10, "statusMessage": "Reading foie_gras files",
@@ -151,7 +161,7 @@ def install(project):
     groups = config.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
     for group in groups:
         for existing in group.get("hooks", []):
-            if existing.get("command", "").endswith(f" {script}"):
+            if existing.get("statusMessage") == handler["statusMessage"]:
                 existing.update(handler)
                 break
         else:

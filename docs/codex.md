@@ -7,11 +7,9 @@ one already loaded, then enter your task normally.
 
 ## Setup
 
-From your project directory:
-
 ```sh
-python3 /path/to/foie_gras/codex/feed.py --install
-codex
+foie-gras path/to/repo
+cd path/to/repo && codex
 ```
 
 Review and trust the foie_gras hook when Codex asks, or open `/hooks`. This is
@@ -58,10 +56,11 @@ Requires Python 3.10+ and a current Codex CLI with `UserPromptSubmit` hooks.
 Tested with 0.162.1. Hooks are enabled by default; if you have explicitly disabled
 them, enable `features.hooks` in your Codex configuration.
 
-The installer adds one handler to the project's `.codex/hooks.json`, preserving
-other hooks. It references this checkout's `codex/feed.py` by absolute path, so
-keep the checkout at that location. Repeating installation at the same path is
-safe. You can also supply a project path: `python3 codex/feed.py --install path/to/project`.
+`foie-gras` writes `codex/feed.py` to `.codex/foie_gras.py` and adds one handler
+to the project's `.codex/hooks.json` that runs it from the Git root, preserving
+other hooks. The project does not depend on the foie_gras checkout, and rerunning
+replaces the handler instead of adding another. To run this checkout's `feed.py`
+by absolute path instead, use `python3 codex/feed.py --install path/to/project`.
 There are no skills, generated commands, or session launchers.
 
 To remove the integration, remove its handler from `.codex/hooks.json`, or
@@ -109,10 +108,10 @@ beginning with `#` are ignored. Directories include their files recursively,
 including hidden files, without following nested directory symlinks. Spaces in
 paths work, and duplicate files are loaded once.
 
-Files must contain UTF-8 text. Missing matches, empty lists, binary files, and
-read errors block the prompt with an explanation. If there is no `.foie_gras`,
-ordinary prompts proceed unchanged; an explicit `feed:NAME` or `FOIE_GRAS_LIST`
-selection reports an error.
+Files must contain UTF-8 text. Missing matches, binary files, and read errors
+block the prompt with an explanation. If there is no `.foie_gras` or the list is
+empty, ordinary prompts proceed unchanged; an explicit `feed:NAME` or
+`FOIE_GRAS_LIST` selection reports an error.
 
 The hook preserves complete contents and line endings, with file boundaries and
 final-newline information. Its `additionalContextLimit: 0` setting prevents
@@ -133,12 +132,13 @@ See also the [official hooks documentation](https://learn.chatgpt.com/docs/hooks
 
 ```sh
 python3 tests/test_codex_feed.py
+python3 tests/test_install.py
 python3 tests/codex.py
 python3 tests/codex_tui.py
 python3 tests/codex_live.py --strict
 ```
 
-The unit tests need only Python. The next two commands capture actual Codex
+The first two need only Python, Git and make. The next two capture actual Codex
 requests with a local mock provider, without model inference. They check default
 and named lists, full large-file contents, and one copy of the task. The TUI test
 reviews the installed hook through Codex's own UI, checks that ordinary

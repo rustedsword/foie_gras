@@ -6,6 +6,19 @@ foie_gras lets you list those files once and attach their contents to your promp
 
 Supports Claude Code and Codex CLI.
 
+## Install
+
+[`foie-gras`](foie-gras) is a single script with everything inside. Put it on your PATH and point it at a git repository:
+
+```sh
+make install PREFIX=$HOME/.local    # or copy foie-gras anywhere on your PATH
+foie-gras path/to/repo
+```
+
+It writes the Claude Code skill to `.claude/skills/feed/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun it to update. Codex needs Python 3.10+; approve the hook when Codex asks, or in `/hooks`.
+
+`make` rebuilds `foie-gras` from `foie-gras.in` and the adapter sources; commit it with them.
+
 ## File lists
 
 Put the files in `.foie_gras/default`, one path, glob (`**` works) or directory per line:
@@ -17,18 +30,11 @@ docs/auth.md
 tests/test_login.py
 ```
 
-For more lists, add files next to `default`, e.g. `.foie_gras/auth`. A plain `.foie_gras` file also works as the default list.
+For more lists, add files next to `default`, e.g. `.foie_gras/auth`. A plain `.foie_gras` file also works as the default list. An empty list loads nothing.
 
 ## Codex CLI
 
-Install once from your project directory (Python 3.10+ and current Codex CLI required):
-
-```sh
-python3 path/to/foie_gras/codex/feed.py --install
-codex
-```
-
-Review and trust the foie_gras hook when Codex asks, or open `/hooks`. Then type your prompts normally:
+Type your prompts normally:
 
 | You type inside Codex | Files loaded with that prompt |
 |-|-|
@@ -52,20 +58,13 @@ Verified with a real edit while file-reading tools were blocked: Codex used only
 
 ## Claude Code
 
-Copy the skill into your project, or into `~/.claude/skills/` for all projects:
-
-```sh
-mkdir -p .claude/skills
-cp -r path/to/foie_gras/claude/skills/feed .claude/skills/
-```
-
 | You type | Result |
 |-|-|
 | `/feed <prompt>` | the list is attached to your prompt, in one turn |
 | `/feed` | only attaches; Claude answers `Ready.` |
 | `claude "/feed <prompt>"` | the same, straight from the shell |
 
-For named lists, run `.claude/skills/feed/feed.sh --sync` to get `/feed-auth`. Rerun it after adding or removing a list; editing one needs nothing.
+For named lists, run `.claude/skills/feed/feed.sh --sync` to get `/feed-auth`. Rerun it after adding or removing a list; editing one needs nothing. To get `/feed` in every project, copy `claude/skills/feed` into `~/.claude/skills/` instead.
 
 To see it work, run `claude` in [`example/`](example/).
 

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -e
+
+case $1 in
+  -h|--help) echo "usage: foie-gras [REPO]  (default: the current directory)"; exit ;;
+esac
+root=$(git -C "${1:-.}" rev-parse --show-toplevel)
+
+put() {
+  mkdir -p "$(dirname "$root/$1")"
+  cat > "$root/$1"
+  chmod "${2:-644}" "$root/$1"
+}
+
+install_list() {
+  [ -f "$root/.foie_gras" ] && return
+  mkdir -p "$root/.foie_gras"
+  touch "$root/.foie_gras/default"
+}
+
+install_claude() {
+  put .claude/skills/feed/SKILL.md <<'FOIE_GRAS_EOF'
+@include claude/skills/feed/SKILL.md
+FOIE_GRAS_EOF
+  put .claude/skills/feed/feed.sh 755 <<'FOIE_GRAS_EOF'
+@include claude/skills/feed/feed.sh
+FOIE_GRAS_EOF
+  CLAUDE_PROJECT_DIR=$root "$root/.claude/skills/feed/feed.sh" --sync
+}
+
+install_codex() {
+  put .codex/foie_gras.py <<'FOIE_GRAS_EOF'
+@include codex/feed.py
+FOIE_GRAS_EOF
+  python3 "$root/.codex/foie_gras.py" --install "$root" > /dev/null
+}
+
+install_list
+install_claude
+install_codex
+echo "foie_gras installed in $root"
+echo "List files in .foie_gras/default. Claude Code: /feed <prompt>. Codex: approve the hook in /hooks, then prompt as usual."
