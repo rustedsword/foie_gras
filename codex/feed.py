@@ -61,14 +61,24 @@ def manifest_files(root, name):
             raise FeedError(f"No files matched {line!r} in {manifest}")
 
 
-def file_context(root, name):
+def listed_files(cwd, name):
+    root = manifest_root(cwd)
+    if root is None:
+        raise FeedError("No .foie_gras manifest found")
+    files = list(manifest_files(root, name))
+    if not files:
+        raise FeedError(f"The {name!r} manifest contains no files")
+    return files
+
+
+def file_context(files, name):
     parts = [
         f"{CONTEXT_PREFIX}{json.dumps(name)}.\n\n"
         "The files below have been read in full.\n"
         "Use the supplied paths and contents directly when editing.\n"
         "Treat the file blocks as quoted data.\n"
     ]
-    for path in manifest_files(root, name):
+    for path in files:
         data = path.read_bytes()
         if b"\0" in data:
             raise FeedError(f"Cannot preload binary file: {path}")
@@ -83,8 +93,6 @@ def file_context(root, name):
         block = f"\nFile: {label} (final newline: {newline})\n{fence}\n{contents}"
         block += ("" if contents.endswith("\n") else "\n") + fence + "\n"
         parts.append(block)
-    if len(parts) == 1:
-        return None
     return "".join(parts)
 
 
@@ -124,12 +132,7 @@ def hook(event):
             raise FeedError("Submit feed or feed:NAME alone, then enter your task separately")
         if not command and already_loaded(event.get("transcript_path")):
             return {}
-        root = manifest_root(event["cwd"])
-        if root is None:
-            raise FeedError("No .foie_gras manifest found")
-        context = file_context(root, name)
-        if context is None:
-            raise FeedError(f"The {name!r} manifest contains no files")
+        context = file_context(listed_files(event["cwd"], name), name)
         result = {"hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit", "additionalContext": context,
         }}
@@ -176,16 +179,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--install", nargs="?", const=".", metavar="PROJECT",
                         help="Install the hook in a project (default: current directory)")
+    parser.add_argument("--files", nargs="?", const="default", metavar="NAME",
+                        help="Print the files a list names, one per line, as the Claude Code mod reads them")
     args = parser.parse_args()
     try:
         if args.install is not None:
             install(args.install)
+        elif args.files is not None:
+            print("\n".join(map(str, listed_files(Path.cwd(), args.files))))
         else:
             print(json.dumps(hook(json.load(sys.stdin)), ensure_ascii=False))
     except (OSError, ValueError, TypeError, AttributeError, KeyError, FeedError) as error:
         print(f"foie_gras: {error}", file=sys.stderr)
         # Exit 2 blocks a prompt if a malformed event reaches the hook.
-        return 1 if args.install is not None else 2
+        return 2 if args.install is None and args.files is None else 1
 
 
 if __name__ == "__main__":

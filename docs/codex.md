@@ -33,6 +33,9 @@ directory containing `.foie_gras`; file labels sent to Codex are absolute.
 Recursive directory expansion includes hidden files. Resolved paths identify
 duplicate files, which are loaded once.
 
+The Claude Code mod resolves lists with a copy of this script, run with
+`--files=NAME`, so both agents load the same files.
+
 Files must contain UTF-8 text. Absent or empty lists, binary files, and read
 errors produce a local error message and block the requested load.
 

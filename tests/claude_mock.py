@@ -129,6 +129,11 @@ def check(scenario, root, api):
         output = printed(root, "feed" if scenario == "alone" else f"feed: {TASK}")
         expected = "put your task after feed:" if scenario == "alone" else "No files matched 'src/missing.py'"
         return {"requests": len(api.requests), "ok": not api.requests and expected in output}
+    if scenario == "option":
+        hooks = (root / ".codex/hooks.json").read_text()
+        output = printed(root, f"feed:--install {TASK}")
+        kept = (root / ".codex/hooks.json").read_text() == hooks
+        return {"requests": len(api.requests), "ok": not api.requests and ".foie_gras/--install'" in output and kept}
     if scenario == "resume":
         sid = str(uuid.uuid4())
         printed(root, f"feed: {TASK}", ["--session-id", sid])
@@ -172,7 +177,7 @@ def run(scenario, keep):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    scenarios = ["default", "named", "spaces", "plain", "alone", "missing", "resume", "interactive"]
+    scenarios = ["default", "named", "spaces", "plain", "alone", "missing", "option", "resume", "interactive"]
     parser.add_argument("scenarios", nargs="*", help=", ".join(scenarios) + " (default: all)")
     parser.add_argument("--keep", action="store_true", help="Keep fixtures and captured requests")
     args = parser.parse_args()

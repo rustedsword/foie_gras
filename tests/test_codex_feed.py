@@ -41,7 +41,7 @@ class FeedTests(unittest.TestCase):
         return target
 
     def text(self, name="default"):
-        return feed.file_context(self.root, name)
+        return feed.file_context(feed.listed_files(self.root, name), name)
 
     def event(self, prompt="change alpha", cwd=None):
         return {"hook_event_name": "UserPromptSubmit", "prompt": prompt,
@@ -116,7 +116,8 @@ class FeedTests(unittest.TestCase):
     def test_empty_list_is_skipped_unless_selected(self):
         for contents in ("", "# no files yet\n"):
             self.write(".foie_gras/default", contents)
-            self.assertIsNone(self.text())
+            with self.assertRaises(feed.FeedError):
+                self.text()
             self.assertEqual(feed.hook(self.event()), {})
             self.assertEqual(feed.hook(self.event("feed"))["decision"], "block")
             self.assertEqual(feed.hook(self.event("feed:default"))["decision"], "block")
@@ -294,6 +295,10 @@ class FeedTests(unittest.TestCase):
         with self.assertRaises((TypeError, AttributeError)):
             feed.install(self.root)
         self.assertEqual(path.read_text(), '{"hooks": []}')
+
+    def test_claude_mod_resolves_lists_with_this_script(self):
+        copy = SCRIPT.parents[1] / "claude/foie-gras/feed.py"
+        self.assertEqual(copy.read_bytes(), SCRIPT.read_bytes(), "run make")
 
 
 if __name__ == "__main__":

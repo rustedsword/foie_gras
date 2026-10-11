@@ -5,11 +5,11 @@ How the Claude Code adapter works, and how it compares to the other ways of gett
 ## How it works
 
 - `.claude/skills/foie-gras/` is a mod: a plugin folder with a hooks module, `hooks/register.ts`. Claude Code loads plugins from a project's skills folder once the workspace is trusted. It has no `SKILL.md`, so it adds no skill or slash command.
-- Its `prompt.submit` hook takes `feed: <prompt>` or `feed:NAME <prompt>`, runs `files.sh NAME` to resolve the list, and passes `<prompt>` on without the prefix. A prompt that only starts with the word "feed" is left alone.
+- Its `prompt.submit` hook takes `feed: <prompt>` or `feed:NAME <prompt>`, runs `feed.py --files=NAME` to resolve the list, and passes `<prompt>` on without the prefix. A prompt that only starts with the word "feed" is left alone.
 - Its `turn.step` hook answers the turn's first model request itself, with Read calls for those files and no model call. Claude Code runs them with its Read tool, records them as Claude's calls, and sends the model your prompt, the calls and their results. Claude continues as if it had read the files: they count as read, and nothing is left to reread.
 - An error (no list, an entry that matches nothing, an empty list) drops the prompt and shows the message. So does `feed:` without a prompt. Claude Code puts the prompt back in the box for a retry, and nothing of it is kept in the session.
 - Subagents, later steps of a turn and other prompts are untouched.
-- `files.sh` takes the same list syntax as the Codex hook: paths, globs with `**`, directories, `#` comments, and a plain `.foie_gras` file as the default list. It searches the working directory and its parents for `.foie_gras`, stopping at a Git repository boundary.
+- `feed.py` is a copy of the Codex hook, made by `make`, so both agents resolve a list to the same files: paths, globs with `**`, directories, `#` comments, and a plain `.foie_gras` file as the default list. It searches the working directory and its parents for `.foie_gras`, stopping at a Git repository boundary.
 
 ## What Claude sees
 

@@ -15,9 +15,9 @@ make install PREFIX=$HOME/.local    # or copy foie-gras anywhere on your PATH
 foie-gras path/to/repo
 ```
 
-It writes a Claude Code mod to `.claude/skills/foie-gras/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun the updated script to upgrade the adapters, preserving your file lists. Claude Code loads the mod once you trust the repository. Codex needs Python 3.10+; approve the hook when Codex asks, or in `/hooks`.
+It writes a Claude Code mod to `.claude/skills/foie-gras/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun the updated script to upgrade the adapters, preserving your file lists. Both adapters need Python 3.10+. Claude Code loads the mod once you trust the repository. Approve the Codex hook when Codex asks, or in `/hooks`.
 
-`make` rebuilds `foie-gras` from `foie-gras.in` and the adapter sources; commit it with them.
+`make` rebuilds `foie-gras` from `foie-gras.in` and the adapter sources, and copies `codex/feed.py` into the mod; commit both with them.
 
 ## File lists
 

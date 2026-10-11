@@ -157,7 +157,7 @@ def task(model, timeout):
 
 
 def example(model, timeout):
-    listed = subprocess.run(["bash", EXAMPLE / ".claude/skills/foie-gras/files.sh"], cwd=EXAMPLE,
+    listed = subprocess.run(["python3", EXAMPLE / ".claude/skills/foie-gras/feed.py", "--files"], cwd=EXAMPLE,
                             capture_output=True, text=True, check=True)
     expected = listed.stdout.splitlines()
     sid = str(uuid.uuid4())

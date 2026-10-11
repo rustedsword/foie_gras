@@ -16,7 +16,7 @@ export const register: Register = on => {
     const [, name, task] = feed
     if (!task?.trim()) return { drop: `foie_gras: put your task after feed:${name}` }
     if (e.turnId !== undefined) return { drop: 'foie_gras: send feed: once Claude has finished' }
-    const ran = await $.process.run(['bash', `${$.plugin.root}/files.sh`, name || 'default'])
+    const ran = await $.process.run(['python3', `${$.plugin.root}/feed.py`, `--files=${name || 'default'}`])
     if (ran.exitCode !== 0) return { drop: ran.stderr.trim() }
     pending = ran.stdout.split('\n').filter(Boolean)
     const entered = await next({ ...e, text: task })

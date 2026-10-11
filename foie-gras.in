@@ -29,9 +29,10 @@ FOIE_GRAS_EOF
   put $mod/hooks/register.ts <<'FOIE_GRAS_EOF'
 @include claude/foie-gras/hooks/register.ts
 FOIE_GRAS_EOF
-  put $mod/files.sh 755 <<'FOIE_GRAS_EOF'
-@include claude/foie-gras/files.sh
+  put $mod/feed.py <<'FOIE_GRAS_EOF'
+@include claude/foie-gras/feed.py
 FOIE_GRAS_EOF
+  rm -f "$root/$mod/files.sh"
   remove_feed_skill
 }
 

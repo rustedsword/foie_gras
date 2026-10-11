@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -28,7 +29,7 @@ class InstallTests(unittest.TestCase):
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="fg-install-")
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         (self.root / "src").mkdir()
         (self.root / "src/alpha.py").write_text('ALPHA = "first"\n')
@@ -54,8 +55,8 @@ class InstallTests(unittest.TestCase):
                                 input=json.dumps(event), capture_output=True, text=True, check=True)
         return json.loads(result.stdout)
 
-    def claude_files(self, *name):
-        return subprocess.run(["bash", str(self.root / ".claude/skills/foie-gras/files.sh"), *name],
+    def claude_files(self, name="default"):
+        return subprocess.run(["python3", str(self.root / ".claude/skills/foie-gras/feed.py"), f"--files={name}"],
                               cwd=self.root / "src", env=self.environment, capture_output=True, text=True)
 
     def test_missing_entry_stops_both_agents(self):
@@ -76,7 +77,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(json.loads((mod / "hooks/hooks.json").read_text()), {"modules": ["./register.ts"]})
         self.assertIn("turn.step", (mod / "hooks/register.ts").read_text())
         self.assertEqual(self.codex_hook(), {})
-        self.assertIn("lists no files", self.claude_files().stderr)
+        self.assertIn("contains no files", self.claude_files().stderr)
         (self.root / "src/b c.py").write_text("B = 1\n")
         (self.root / ".foie_gras/default").write_text("src/*.py\n")
         self.assertEqual(self.codex_hook(), {})
@@ -104,6 +105,16 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.codex_hook(), {})
         self.assertIn('ALPHA = "first"', self.codex_hook("feed")["hookSpecificOutput"]["additionalContext"])
 
+    def test_both_agents_resolve_crlf_lists_absolute_paths_and_aliases_alike(self):
+        self.install()
+        (self.root / "src/beta.py").write_text("BETA = 2\n")
+        (self.root / "alias.py").symlink_to(self.root / "src/alpha.py")
+        (self.root / ".foie_gras/default").write_text(f"src/alpha.py\r\nalias.py\r\n{self.root}/src/beta.py\r\n")
+        files = [str(self.root / "src/alpha.py"), str(self.root / "src/beta.py")]
+        self.assertEqual(self.claude_files().stdout.splitlines(), files)
+        context = self.codex_hook("feed")["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(re.findall(r'^File: "(.+)" \(', context, re.M), files)
+
     def test_plain_list_file_is_kept(self):
         (self.root / ".foie_gras").write_text("src/alpha.py\n")
         self.install()
@@ -114,14 +125,15 @@ class InstallTests(unittest.TestCase):
         self.assertIn('ALPHA = "first"', result["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(result, self.codex_hook("feed:default"))
 
-    def test_rerun_removes_the_old_feed_skill(self):
+    def test_rerun_removes_files_of_earlier_versions(self):
         skills = self.root / ".claude/skills"
         for path, text in (("feed/feed.sh", ""), ("feed-auth/SKILL.md", "!`${CLAUDE_SKILL_DIR}/../feed/feed.sh auth`\n"),
-                           ("mine/SKILL.md", "mine\n")):
+                           ("mine/SKILL.md", "mine\n"), ("foie-gras/files.sh", "")):
             (skills / path).parent.mkdir(parents=True, exist_ok=True)
             (skills / path).write_text(text)
         self.install()
         self.assertEqual(sorted(p.name for p in skills.iterdir()), ["foie-gras", "mine"])
+        self.assertFalse((skills / "foie-gras/files.sh").exists())
 
     def test_refuses_a_directory_outside_git(self):
         with tempfile.TemporaryDirectory(prefix="fg-install-") as directory:
