@@ -48,6 +48,7 @@ An agent's `initialPrompt: /feed` would run `/feed` automatically at startup, bu
 - A file over 25k tokens is silently skipped, not truncated. Raise `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`, e.g. `"env": {"CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "100000"}` in settings. Files over 256 KB are never attached.
 - The skill needs the Bash tool, and its `!` command must be pre-approved; `allowed-tools` does that for `feed.sh`. Denying `Bash` or setting `disableSkillShellExecution` breaks it; fall back to plain `@path` lines in `SKILL.md`.
 - Fed files stay in context for the rest of the session; keep lists task-sized.
+- If an entry matches no file, or the list doesn't exist, `feed.sh` fails and Claude Code stops `/feed` before Claude runs, showing the error. Claude Code keeps the failed command, including your prompt, in the session as context, so retry in a new session or after `/clear` to keep the prompt from reaching Claude twice.
 
 ## Tests
 

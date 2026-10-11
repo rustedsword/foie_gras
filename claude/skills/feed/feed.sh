@@ -8,18 +8,19 @@ emit() {
   local f=${1#./}
   [ -n "${seen[$f]}" ] && return
   seen[$f]=1
-  printf '@%s\n' "${f// /\\ }"
+  out+=("@${f// /\\ }")
 }
 
 expand() {
-  local IFS= p f
+  local IFS= p f found=
   for p in $1; do
     if [ -d "$p" ]; then
-      for f in "${p%/}"/**; do [ -f "$f" ] && emit "$f"; done
+      for f in "${p%/}"/**; do [ -f "$f" ] && emit "$f" && found=1; done
     elif [ -f "$p" ]; then
-      emit "$p"
+      emit "$p" && found=1
     fi
   done
+  [ -n "$found" ] || { echo "foie_gras: No files matched '$1' in $manifest" >&2; failed=1; }
 }
 
 sync_lists() {
@@ -53,9 +54,13 @@ fi
 list=${1:-default}
 manifest=.foie_gras/$list
 [ "$list" = default ] && [ -f .foie_gras ] && manifest=.foie_gras
-[ -f "$manifest" ] || { echo "(foie_gras: $manifest not found)"; exit 0; }
+[ -f "$manifest" ] || { echo "foie_gras: $manifest not found" >&2; exit 1; }
 
+out=()
+failed=
 while read -r line || [ -n "$line" ]; do
   [[ -z $line || $line == \#* ]] && continue
   expand "$line"
 done < "$manifest"
+[ -z "$failed" ] || exit 1
+[ ${#out[@]} -eq 0 ] || printf '%s\n' "${out[@]}"

@@ -30,7 +30,7 @@ docs/auth.md
 tests/test_login.py
 ```
 
-For more lists, add files next to `default`, e.g. `.foie_gras/auth`. A plain `.foie_gras` file also works as the default list. An empty list loads nothing.
+For more lists, add files next to `default`, e.g. `.foie_gras/auth`. A plain `.foie_gras` file also works as the default list. An empty list loads nothing. Every entry must match a file: otherwise the prompt doesn't run, and the error names the entry.
 
 ## Codex CLI
 

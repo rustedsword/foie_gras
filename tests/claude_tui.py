@@ -180,11 +180,11 @@ SCENARIOS = {f.__name__: f for f in [task, example]}
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("scenarios", nargs="*", choices=list(SCENARIOS), default=["task"])
+    ap.add_argument("scenarios", nargs="*", choices=list(SCENARIOS))
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--timeout", type=int, default=240)
     a = ap.parse_args()
-    results = [SCENARIOS[s](a.model, a.timeout) for s in a.scenarios]
+    results = [SCENARIOS[s](a.model, a.timeout) for s in a.scenarios or ["task"]]
     print(json.dumps(results, indent=2))
     sys.exit(0 if all(r["ok"] for r in results) else 1)
 

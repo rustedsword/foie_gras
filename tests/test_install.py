@@ -54,11 +54,19 @@ class InstallTests(unittest.TestCase):
                                 input=json.dumps(event), capture_output=True, text=True, check=True)
         return json.loads(result.stdout)
 
-    def claude_feed(self):
+    def claude_feed(self, check=True):
         result = subprocess.run([str(self.root / ".claude/skills/feed/feed.sh")], cwd=self.root / "src",
                                 env={**self.environment, "CLAUDE_PROJECT_DIR": str(self.root)},
-                                capture_output=True, text=True, check=True)
-        return result.stdout
+                                capture_output=True, text=True, check=check)
+        return result.stdout if check else result
+
+    def test_missing_entry_stops_both_agents(self):
+        self.install()
+        (self.root / ".foie_gras/default").write_text("src/alpha.py\nsrc/missing.py\n")
+        result = self.claude_feed(check=False)
+        self.assertEqual((result.returncode, result.stdout), (1, ""))
+        self.assertIn("'src/missing.py'", result.stderr)
+        self.assertIn("'src/missing.py'", self.codex_hook()["reason"])
 
     def test_installs_both_agents_with_an_empty_default_list(self):
         self.assertIn(str(self.root), self.install().stdout)
