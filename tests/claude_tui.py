@@ -18,7 +18,7 @@ import time
 import uuid
 from pathlib import Path
 
-from claude import BLOCKED, TASK, hook, install_adapter, write
+from claude import BLOCKED, FED, GUARD, TASK, hook, install_adapter, write
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "example"
 ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>78]")
@@ -51,10 +51,6 @@ def replies(entries):
 
 def prompted(entries):
     return any(e.get("type") == "user" for e in entries)
-
-
-def attached(entries):
-    return [e["attachment"]["displayPath"] for e in entries if (e.get("attachment") or {}).get("type") == "file"]
 
 
 def forget(sid):
@@ -118,6 +114,11 @@ def drive(root, sid, model, typed, done, timeout, args=(), isolated=True, trust=
     return screen, early
 
 
+def fed(entries):
+    """The files the mod read at the start of a turn."""
+    return [b["input"]["file_path"] for b in blocks(entries, "assistant", "tool_use") if b["id"].startswith(FED)]
+
+
 def task(model, timeout):
     root = Path(tempfile.mkdtemp(prefix="fg-tui-"))
     sid = str(uuid.uuid4())
@@ -127,22 +128,27 @@ def task(model, timeout):
         write(root / "src/beta.py", f'BETA = "{beta}"\n')
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         install_adapter(root)
-        guard = hook("PreToolUse", 'echo "blocked by foie_gras test" >&2; exit 2', "|".join(BLOCKED))
+        # Claude's own reads are blocked, so it knows ALPHA only from the files the mod read.
+        guard = hook("PreToolUse", GUARD, "|".join(BLOCKED))
         write(root / ".claude/settings.json", json.dumps({"hooks": guard}, indent=2))
         done = lambda t: any("ALPHA=" in r for r in replies(t))
-        typed = "/feed " + TASK.format(beta=beta)
-        screen, early = drive(root, sid, model, typed, done, timeout, ["--tools=Edit,Bash"])
+        prompt = TASK.format(beta=beta)
+        screen, early = drive(root, sid, model, "feed: " + prompt, done, timeout, ["--tools=Read,Edit,Bash"])
         entries = transcript(sid)
         context = any(alpha in r for r in replies(entries))
         edit = (root / "src/beta.py").read_text() == 'BETA = "edited"\n'
+        files = sorted(Path(f).name for f in fed(entries))
+        texts = [b["text"] for b in blocks(entries, "user", "text")]
         return {
             "scenario": "task",
             "auto_started": early,
+            "fed": files,
+            "prompts": texts,
             "context": context,
             "edit": edit,
-            "calls": [b["name"] for b in blocks(entries, "assistant", "tool_use")],
+            "calls": [b["name"] for b in blocks(entries, "assistant", "tool_use") if not b["id"].startswith(FED)],
             "reply": (replies(entries) or [""])[-1][-200:],
-            "ok": not early and context and edit,
+            "ok": not early and files == ["alpha.py", "beta.py"] and texts == [prompt] and context and edit,
             "screen": screen[-1500:] if not entries else "",
         }
     finally:
@@ -151,24 +157,22 @@ def task(model, timeout):
 
 
 def example(model, timeout):
-    feed = subprocess.run(
-        [EXAMPLE / ".claude/skills/feed/feed.sh"],
-        env={**os.environ, "CLAUDE_PROJECT_DIR": str(EXAMPLE)}, capture_output=True, text=True,
-    )
-    expected = [line[1:].replace("\\ ", " ") for line in feed.stdout.splitlines() if line.startswith("@")]
+    listed = subprocess.run(["bash", EXAMPLE / ".claude/skills/foie-gras/files.sh"], cwd=EXAMPLE,
+                            capture_output=True, text=True, check=True)
+    expected = listed.stdout.splitlines()
     sid = str(uuid.uuid4())
     try:
-        typed = "/feed Reply with Ready. and nothing else."
-        screen, early = drive(EXAMPLE, sid, model, typed, replies, timeout, isolated=False, trust=False)
+        screen, early = drive(EXAMPLE, sid, model, "feed: Reply with Ready. and nothing else.", replies, timeout,
+                              isolated=False, trust=False)
         entries = transcript(sid)
-        files = attached(entries)
+        files = fed(entries)
         return {
             "scenario": "example",
             "auto_started": early,
-            "expected": expected,
-            "files": files,
+            "expected": [Path(f).relative_to(EXAMPLE).as_posix() for f in expected],
+            "fed": [Path(f).relative_to(EXAMPLE).as_posix() for f in files],
             "reply": (replies(entries) or [""])[-1][:200],
-            "ok": not early and sorted(files) == sorted(expected) and any("Ready" in r for r in replies(entries)),
+            "ok": not early and files == expected and any("Ready" in r for r in replies(entries)),
             "screen": screen[-1500:] if not entries else "",
         }
     finally:

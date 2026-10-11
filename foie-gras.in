@@ -19,13 +19,28 @@ install_list() {
 }
 
 install_claude() {
-  put .claude/skills/feed/SKILL.md <<'FOIE_GRAS_EOF'
-@include claude/skills/feed/SKILL.md
+  local mod=.claude/skills/foie-gras
+  put $mod/.claude-plugin/plugin.json <<'FOIE_GRAS_EOF'
+@include claude/foie-gras/.claude-plugin/plugin.json
 FOIE_GRAS_EOF
-  put .claude/skills/feed/feed.sh 755 <<'FOIE_GRAS_EOF'
-@include claude/skills/feed/feed.sh
+  put $mod/hooks/hooks.json <<'FOIE_GRAS_EOF'
+@include claude/foie-gras/hooks/hooks.json
 FOIE_GRAS_EOF
-  CLAUDE_PROJECT_DIR=$root "$root/.claude/skills/feed/feed.sh" --sync
+  put $mod/hooks/register.ts <<'FOIE_GRAS_EOF'
+@include claude/foie-gras/hooks/register.ts
+FOIE_GRAS_EOF
+  put $mod/files.sh 755 <<'FOIE_GRAS_EOF'
+@include claude/foie-gras/files.sh
+FOIE_GRAS_EOF
+  remove_feed_skill
+}
+
+# Earlier versions installed a /feed skill, plus one /feed-NAME skill per list.
+remove_feed_skill() {
+  local skills=$root/.claude/skills
+  [ -f "$skills/feed/feed.sh" ] || return 0
+  grep -l '/\.\./feed/feed\.sh' "$skills"/feed-*/SKILL.md 2>/dev/null | while read -r f; do rm -r "${f%/SKILL.md}"; done
+  rm -r "$skills/feed"
 }
 
 install_codex() {
@@ -39,4 +54,4 @@ install_list
 install_claude
 install_codex
 echo "foie_gras installed in $root"
-echo "List files in .foie_gras/default. Claude Code: /feed <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."
+echo "List files in .foie_gras/default. Claude Code: feed: <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."

@@ -15,7 +15,7 @@ make install PREFIX=$HOME/.local    # or copy foie-gras anywhere on your PATH
 foie-gras path/to/repo
 ```
 
-It writes the Claude Code skill to `.claude/skills/feed/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun the updated script to upgrade the adapters, preserving your file lists. Codex needs Python 3.10+; approve the hook when Codex asks, or in `/hooks`.
+It writes a Claude Code mod to `.claude/skills/foie-gras/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun the updated script to upgrade the adapters, preserving your file lists. Claude Code loads the mod once you trust the repository. Codex needs Python 3.10+; approve the hook when Codex asks, or in `/hooks`.
 
 `make` rebuilds `foie-gras` from `foie-gras.in` and the adapter sources; commit it with them.
 
@@ -56,13 +56,12 @@ Implementation details, source references, and tests: [docs/codex.md](docs/codex
 
 ## Claude Code
 
-| You type | Result |
+| You type | Files read with that prompt |
 |-|-|
-| `/feed <prompt>` | the list is attached to your prompt, in one turn |
-| `/feed` | attaches files; Claude answers `Ready.` |
-| `claude "/feed <prompt>"` | the same, straight from the shell |
+| `feed: <prompt>` | `.foie_gras/default` |
+| `feed:auth <prompt>` | `.foie_gras/auth` |
 
-For named lists, run `.claude/skills/feed/feed.sh --sync` to get `/feed-auth`. Rerun it after adding or removing a list. To get `/feed` in every project, copy `claude/skills/feed` into `~/.claude/skills/`.
+Claude gets `<prompt>` as you typed it, and its turn starts with Read calls for the listed files: Claude Code reads them with its Read tool, as if Claude had asked, and they count as read. `claude -p "feed: <prompt>"` works the same. To use it in every project, copy `claude/foie-gras` into `~/.claude/skills/`.
 
 To see it work, run `claude` in [`example/`](example/).
 

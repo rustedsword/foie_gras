@@ -54,16 +54,14 @@ class InstallTests(unittest.TestCase):
                                 input=json.dumps(event), capture_output=True, text=True, check=True)
         return json.loads(result.stdout)
 
-    def claude_feed(self, check=True):
-        result = subprocess.run([str(self.root / ".claude/skills/feed/feed.sh")], cwd=self.root / "src",
-                                env={**self.environment, "CLAUDE_PROJECT_DIR": str(self.root)},
-                                capture_output=True, text=True, check=check)
-        return result.stdout if check else result
+    def claude_files(self, *name):
+        return subprocess.run(["bash", str(self.root / ".claude/skills/foie-gras/files.sh"), *name],
+                              cwd=self.root / "src", env=self.environment, capture_output=True, text=True)
 
     def test_missing_entry_stops_both_agents(self):
         self.install()
         (self.root / ".foie_gras/default").write_text("src/alpha.py\nsrc/missing.py\n")
-        result = self.claude_feed(check=False)
+        result = self.claude_files()
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertIn("'src/missing.py'", result.stderr)
         self.assertEqual(self.codex_hook(), {})
@@ -73,15 +71,20 @@ class InstallTests(unittest.TestCase):
         self.assertIn(str(self.root), self.install().stdout)
         self.assertEqual((self.root / ".foie_gras/default").read_text(), "")
         self.assertEqual(self.handlers(), [COMMAND])
+        mod = self.root / ".claude/skills/foie-gras"
+        self.assertEqual(json.loads((mod / ".claude-plugin/plugin.json").read_text())["name"], "foie-gras")
+        self.assertEqual(json.loads((mod / "hooks/hooks.json").read_text()), {"modules": ["./register.ts"]})
+        self.assertIn("turn.step", (mod / "hooks/register.ts").read_text())
         self.assertEqual(self.codex_hook(), {})
-        self.assertEqual(self.claude_feed(), "")
+        self.assertIn("lists no files", self.claude_files().stderr)
+        (self.root / "src/b c.py").write_text("B = 1\n")
         (self.root / ".foie_gras/default").write_text("src/*.py\n")
         self.assertEqual(self.codex_hook(), {})
         result = self.codex_hook("feed")
         self.assertIn('ALPHA = "first"', result["hookSpecificOutput"]["additionalContext"])
         self.assertFalse(result["continue"])
         self.assertEqual(self.codex_hook("feed:default"), result)
-        self.assertEqual(self.claude_feed(), "@src/alpha.py\n")
+        self.assertEqual(self.claude_files().stdout, f"{self.root}/src/alpha.py\n{self.root}/src/b c.py\n")
 
     def test_rerun_keeps_lists_and_other_hooks_and_replaces_its_own(self):
         (self.root / ".codex").mkdir()
@@ -94,10 +97,10 @@ class InstallTests(unittest.TestCase):
         (self.root / ".foie_gras/default").write_text("src/alpha.py\n")
         (self.root / ".foie_gras/auth").write_text("src/alpha.py\n")
         self.install()
-        self.assertIn("/feed-auth", self.install().stdout)
+        self.install()
         self.assertEqual((self.root / ".foie_gras/default").read_text(), "src/alpha.py\n")
         self.assertEqual(self.handlers(), ["echo custom", COMMAND])
-        self.assertTrue((self.root / ".claude/skills/feed-auth/SKILL.md").is_file())
+        self.assertEqual(self.claude_files("auth").stdout, f"{self.root}/src/alpha.py\n")
         self.assertEqual(self.codex_hook(), {})
         self.assertIn('ALPHA = "first"', self.codex_hook("feed")["hookSpecificOutput"]["additionalContext"])
 
@@ -105,11 +108,20 @@ class InstallTests(unittest.TestCase):
         (self.root / ".foie_gras").write_text("src/alpha.py\n")
         self.install()
         self.assertEqual((self.root / ".foie_gras").read_text(), "src/alpha.py\n")
-        self.assertEqual(self.claude_feed(), "@src/alpha.py\n")
+        self.assertEqual(self.claude_files().stdout, f"{self.root}/src/alpha.py\n")
         self.assertEqual(self.codex_hook(), {})
         result = self.codex_hook("feed")
         self.assertIn('ALPHA = "first"', result["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(result, self.codex_hook("feed:default"))
+
+    def test_rerun_removes_the_old_feed_skill(self):
+        skills = self.root / ".claude/skills"
+        for path, text in (("feed/feed.sh", ""), ("feed-auth/SKILL.md", "!`${CLAUDE_SKILL_DIR}/../feed/feed.sh auth`\n"),
+                           ("mine/SKILL.md", "mine\n")):
+            (skills / path).parent.mkdir(parents=True, exist_ok=True)
+            (skills / path).write_text(text)
+        self.install()
+        self.assertEqual(sorted(p.name for p in skills.iterdir()), ["foie-gras", "mine"])
 
     def test_refuses_a_directory_outside_git(self):
         with tempfile.TemporaryDirectory(prefix="fg-install-") as directory:

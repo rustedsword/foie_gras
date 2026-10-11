@@ -14,6 +14,10 @@ from pathlib import Path
 ADAPTER = Path(__file__).resolve().parent.parent / "claude"
 FILES = ["src/alpha.py", "src/beta.py"]
 READS = {"Read", "Grep", "Glob", "Bash"}
+# The Read calls the mod makes; the strict guard lets them through, and they are not counted as rereads.
+FED = "toolu_foiegras"
+GUARD = ("python3 -c \"import json, sys; fed = json.load(sys.stdin).get('tool_use_id', '').startswith('" + FED + "'); "
+         "fed or print('blocked by foie_gras test', file=sys.stderr); sys.exit(0 if fed else 2)\"")
 BLOCKED = READS | {"Write", "NotebookEdit", "Agent", "LSP", "Monitor"}
 TASK = (
     "Read, Grep, Glob and Bash are blocked in this session. "
@@ -101,31 +105,31 @@ def skill_static(root, task):
 
 
 def install_adapter(root, lists=None):
-    shutil.copytree(ADAPTER / "skills/feed", root / ".claude/skills/feed")
+    shutil.copytree(ADAPTER / "foie-gras", root / ".claude/skills/foie-gras")
     if lists is None:
         write(root / ".foie_gras", "# test manifest\nsrc/**/*.py\n")
-        return
-    (root / ".foie_gras").unlink(missing_ok=True)
-    for name, body in lists.items():
-        write(root / ".foie_gras" / name, body)
-    subprocess.run([root / ".claude/skills/feed/feed.sh", "--sync"], cwd=root, check=True, capture_output=True)
+    else:
+        (root / ".foie_gras").unlink(missing_ok=True)
+        for name, body in lists.items():
+            write(root / ".foie_gras" / name, body)
+    # A throwaway directory is not a trusted workspace, so Claude Code would skip the project's mod.
+    return ["--plugin-dir", str(root / ".claude/skills/foie-gras")]
 
 
-def adapter_skill(root, task):
-    install_adapter(root)
-    return {"prompt": "/feed " + task}
+def adapter_feed(root, task):
+    return {"prompt": "feed: " + task, "args": install_adapter(root), "tools": "Read,Edit,Bash"}
 
 
 def adapter_list(root, task):
-    install_adapter(root, {"default": "src/beta.py\n", "pair": "src/alpha.py\nsrc/beta.py\n"})
-    return {"prompt": "/feed-pair " + task}
+    args = install_adapter(root, {"default": "src/beta.py\n", "pair": "src/alpha.py\nsrc/beta.py\n"})
+    return {"prompt": "feed:pair " + task, "args": args, "tools": "Read,Edit,Bash"}
 
 
 def adapter_large(root, task):
-    install_adapter(root)
+    spec = adapter_feed(root, task)
     alpha = root / "src/alpha.py"
     alpha.write_text("".join(f'V{i} = "{secrets.token_hex(16)}"\n' for i in range(1500)) + alpha.read_text())
-    return {"prompt": "/feed " + task}
+    return spec
 
 
 def adapter_large_raised(root, task):
@@ -147,7 +151,7 @@ MECHANISMS = {f.__name__: f for f in [
     command_static,
     skill_static,
     resume_fork,
-    adapter_skill,
+    adapter_feed,
     adapter_list,
     adapter_large,
     adapter_large_raised,
@@ -165,7 +169,7 @@ STRICT = {
     "command_static": (True, True, 2),
     "skill_static": (True, True, 2),
     "resume_fork": (True, False, 1),
-    "adapter_skill": (True, True, 1),
+    "adapter_feed": (True, True, 1),
     "adapter_list": (True, True, 1),
     "adapter_large": (False, True, 1),
     "adapter_large_raised": (True, True, 1),
@@ -199,7 +203,7 @@ def analyze(events):
         for block in (message.get("content") if isinstance(message, dict) else None) or []:
             if not isinstance(block, dict):
                 continue
-            if block.get("type") == "tool_use":
+            if block.get("type") == "tool_use" and not block["id"].startswith(FED):
                 tools[block["id"]] = block["name"]
             elif block.get("type") == "tool_result" and block.get("is_error"):
                 content = block.get("content")
@@ -238,13 +242,13 @@ def run(name, model, keep, strict):
         write(root / ".foie_gras", "\n".join(FILES) + "\n")
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         spec = MECHANISMS[name](root, TASK.format(beta=beta) if strict else NATURAL_TASK)
-        guard = hook("PreToolUse", 'echo "blocked by foie_gras test" >&2; exit 2', "|".join(BLOCKED)) if strict else {}
+        guard = hook("PreToolUse", GUARD, "|".join(BLOCKED)) if strict else {}
         settings = {
             "hooks": {**guard, **spec.get("hooks", {})},
             **spec.get("settings", {}),
         }
         write(root / ".claude/settings.json", json.dumps(settings, indent=2))
-        cost, args = 0, ["--tools=Edit,Bash"] * strict + list(spec.get("args", []))
+        cost, args = 0, ["--tools=" + spec.get("tools", "Edit,Bash")] * strict + list(spec.get("args", []))
         if "prime" in spec:
             sid = str(uuid.uuid4())
             events, _ = claude(root, model, spec["prime"], ["--session-id", sid])

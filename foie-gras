@@ -19,34 +19,77 @@ install_list() {
 }
 
 install_claude() {
-  put .claude/skills/feed/SKILL.md <<'FOIE_GRAS_EOF'
----
-name: feed
-description: Preload the files listed in .foie_gras/default, or in .foie_gras if it is a file
-disable-model-invocation: true
-argument-hint: [prompt]
-arguments: [first, second]
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/feed.sh)
----
-
-!`${CLAUDE_SKILL_DIR}/feed.sh`
-
-These files are attached with their current contents and count as read: use them directly, do not Read them again. The task is in the command arguments; if there are none, reply `Ready.` and nothing else.
-
-<!-- $second -->
+  local mod=.claude/skills/foie-gras
+  put $mod/.claude-plugin/plugin.json <<'FOIE_GRAS_EOF'
+{
+  "name": "foie-gras",
+  "version": "0.1.0",
+  "description": "feed: <task> or feed:NAME <task> opens the turn with Read calls for the files in .foie_gras"
+}
 FOIE_GRAS_EOF
-  put .claude/skills/feed/feed.sh 755 <<'FOIE_GRAS_EOF'
+  put $mod/hooks/hooks.json <<'FOIE_GRAS_EOF'
+{ "modules": ["./register.ts"] }
+FOIE_GRAS_EOF
+  put $mod/hooks/register.ts <<'FOIE_GRAS_EOF'
+import type { Register } from 'claude-code'
+
+// "feed: <task>" or "feed:NAME <task>" reaches Claude as just <task>, and its turn opens with Read calls for the
+// list's files, answered here instead of the first model request. Claude Code runs them with its Read tool, so
+// Claude continues from reads of its own: the files count as read, and nothing is left to reread.
+const FEED = /^\s*feed:(\S*)(?:\s+([\s\S]*))?$/
+const ID = 'toolu_foiegras'
+const TYPED = new Set(['composer', 'sdk', 'bridge'])
+let pending: string[] = []
+
+export const register: Register = on => {
+  on('prompt.submit', async ($, e, next) => {
+    if (!TYPED.has(e.origin.kind)) return next(e)
+    const feed = FEED.exec(e.text)
+    if (!feed) return e.text.trim() === 'feed' ? { drop: 'foie_gras: put your task after feed: or feed:NAME' } : next(e)
+    const [, name, task] = feed
+    if (!task?.trim()) return { drop: `foie_gras: put your task after feed:${name}` }
+    if (e.turnId !== undefined) return { drop: 'foie_gras: send feed: once Claude has finished' }
+    const ran = await $.process.run(['bash', `${$.plugin.root}/files.sh`, name || 'default'])
+    if (ran.exitCode !== 0) return { drop: ran.stderr.trim() }
+    pending = ran.stdout.split('\n').filter(Boolean)
+    const entered = await next({ ...e, text: task })
+    if (entered.drop !== undefined) pending = []
+    return entered
+  }).catch(($, e, next) => (next.called ? next(e) : { drop: 'foie_gras: the hook failed, see claude --debug' }))
+
+  on('turn.step', async function* ($, e, next) {
+    if (e.index !== 0 || e.agentId !== undefined || !pending.length) return yield* next(e)
+    const files = pending
+    pending = []
+    const run = Date.now().toString(36)
+    for (const [index, file_path] of files.entries()) {
+      yield { kind: 'tool', index, id: `${ID}_${run}_${index}`, name: 'Read' }
+      yield { kind: 'input', index, json: JSON.stringify({ file_path }) }
+    }
+    yield { kind: 'stop', stopReason: 'tool_use', usage: null }
+    const toolUses = files.map(file_path => ({ name: 'Read', input: { file_path } }))
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses, stopReason: 'tool_use', usage: null }
+  })
+}
+FOIE_GRAS_EOF
+  put $mod/files.sh 755 <<'FOIE_GRAS_EOF'
 #!/usr/bin/env bash
+# Prints the absolute paths of the files a .foie_gras list names, one per line.
 shopt -s globstar nullglob dotglob
-here=$(cd "$(dirname "$0")" && pwd)
-cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
 declare -A seen
+out=()
+failed=
+
+fail() {
+  echo "foie_gras: $1" >&2
+  exit 1
+}
 
 emit() {
   local f=${1#./}
   [ -n "${seen[$f]}" ] && return
   seen[$f]=1
-  out+=("@${f// /\\ }")
+  out+=("$PWD/$f")
 }
 
 expand() {
@@ -61,49 +104,33 @@ expand() {
   [ -n "$found" ] || { echo "foie_gras: No files matched '$1' in $manifest" >&2; failed=1; }
 }
 
-sync_lists() {
-  local skills=${here%/*} d name f
-  for d in "$skills"/feed-*/; do
-    name=${d%/}
-    name=${name##*/feed-}
-    grep -qF "/../feed/feed.sh $name\`" "$d/SKILL.md" 2>/dev/null && [ ! -f ".foie_gras/$name" ] && rm -r "$d"
-  done
-  for f in .foie_gras/*; do
-    name=${f##*/}
-    [ "$name" = default ] && continue
-    if [[ ! $name =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-      echo "skipped $f: use lowercase letters, digits and dashes" >&2
-      continue
-    fi
-    mkdir -p "$skills/feed-$name"
-    sed -e "s|^name: feed$|name: feed-$name|" \
-      -e "s|^description: .*|description: Preload the files listed in .foie_gras/$name|" \
-      -e "s|\${CLAUDE_SKILL_DIR}/feed.sh|\${CLAUDE_SKILL_DIR}/../feed/feed.sh $name|g" \
-      "$here/SKILL.md" > "$skills/feed-$name/SKILL.md"
-    echo "/feed-$name"
-  done
-}
-
-if [ "$1" = --sync ]; then
-  sync_lists
-  exit
-fi
-
 list=${1:-default}
+[[ $list =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail "'$list' is not a list name"
+until [ -e .foie_gras ]; do
+  [ -e .git ] || [ "$PWD" = / ] && fail "No .foie_gras found"
+  cd ..
+done
 manifest=.foie_gras/$list
 [ "$list" = default ] && [ -f .foie_gras ] && manifest=.foie_gras
-[ -f "$manifest" ] || { echo "foie_gras: $manifest not found" >&2; exit 1; }
+[ -f "$manifest" ] || fail "$manifest not found"
 
-out=()
-failed=
 while read -r line || [ -n "$line" ]; do
   [[ -z $line || $line == \#* ]] && continue
   expand "$line"
 done < "$manifest"
 [ -z "$failed" ] || exit 1
-[ ${#out[@]} -eq 0 ] || printf '%s\n' "${out[@]}"
+[ ${#out[@]} -gt 0 ] || fail "$manifest lists no files"
+printf '%s\n' "${out[@]}"
 FOIE_GRAS_EOF
-  CLAUDE_PROJECT_DIR=$root "$root/.claude/skills/feed/feed.sh" --sync
+  remove_feed_skill
+}
+
+# Earlier versions installed a /feed skill, plus one /feed-NAME skill per list.
+remove_feed_skill() {
+  local skills=$root/.claude/skills
+  [ -f "$skills/feed/feed.sh" ] || return 0
+  grep -l '/\.\./feed/feed\.sh' "$skills"/feed-*/SKILL.md 2>/dev/null | while read -r f; do rm -r "${f%/SKILL.md}"; done
+  rm -r "$skills/feed"
 }
 
 install_codex() {
@@ -308,4 +335,4 @@ install_list
 install_claude
 install_codex
 echo "foie_gras installed in $root"
-echo "List files in .foie_gras/default. Claude Code: /feed <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."
+echo "List files in .foie_gras/default. Claude Code: feed: <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."
