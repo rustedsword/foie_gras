@@ -1,7 +1,6 @@
 # Codex CLI
 
-Implementation notes and verification. See the README for
-[installation](../README.md#install) and [usage](../README.md#codex-cli).
+Implementation notes and verification.
 
 ## Hook lifecycle
 

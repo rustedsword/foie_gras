@@ -1,68 +1,50 @@
-# foie_gras
+# foie_gras: force-feed files to your agent
 
-When a session starts with "implement X" or "fix Y", a coding agent first spends a string of tool calls finding and reading files, even when you already know which ones it needs.
+You ask an agent to fix a bug, then wait while it searches the repo and reads files you already knew it would need. Open a new session, and it does the same thing again.
 
-foie_gras lets you list those files once and attach their contents to your prompt. They land in context in the same turn, so the agent can start editing.
+Define a list of files, and foie_gras loads their contents into the model's context before it gets your first prompt. Unlike listing paths in `AGENTS.md` or `CLAUDE.md`, this ensures the model can't refuse or "forget" to load them.
 
-Supports Claude Code and Codex CLI.
+Works with Claude Code and Codex CLI.
 
-## Install
+## Use
 
-[`foie-gras`](foie-gras) is a single script with everything inside. Put it on your PATH and point it at a git repository:
+Run the [`foie-gras`](foie-gras) script on your git repository. You'll need Python 3.10+:
 
 ```sh
-make install PREFIX=$HOME/.local    # or copy foie-gras anywhere on your PATH
-foie-gras path/to/repo
+./foie-gras path/to/repo
 ```
 
-It writes a Claude Code mod to `.claude/skills/foie-gras/` and the Codex hook to `.codex/`, and creates an empty `.foie_gras/default`. Rerun the updated script to upgrade the adapters, preserving your file lists. Both adapters need Python 3.10+. Claude Code loads the mod once you trust the repository. Approve the Codex hook when Codex asks, or in `/hooks`.
-
-`make` rebuilds `foie-gras` from `foie-gras.in` and the adapter sources, and copies `codex/feed.py` into the mod; commit both with them.
-
-## File lists
-
-Put the files in `.foie_gras/default`, one path, glob (`**` works) or directory per line:
+Add some paths to `path/to/repo/.foie_gras/default`:
 
 ```
-# .foie_gras/default
 src/auth/**/*.py
 docs/auth.md
 tests/test_login.py
 ```
 
-For more lists, add files next to `default`, e.g. `.foie_gras/auth`. A plain `.foie_gras` file also works as the default list. Every entry must match a file: otherwise the requested load fails, and the error names the entry.
+Then go to your repo and run your harness as usual. (You might need to approve some stuff)
 
 ## Codex CLI
 
-Submit a feed command by itself, then enter your task:
+Send `feed` or `feed:<list_name>` as the first prompt. (It will not be sent)
 
-| Command | File list |
-|-|-|
-| `feed` or `feed:default` | `.foie_gras/default` |
-| `feed:auth` | `.foie_gras/auth` |
+Then enter your real prompt.
 
-Each command reads fresh file contents into the session. Repeat it to refresh a list, or use `feed:NAME` to load another.
-
-For an initial preload, choose a list before starting Codex:
+Or set `FOIE_GRAS_LIST` before starting Codex:
 
 ```sh
-FOIE_GRAS_LIST=default codex exec "Fix the login bug"   # default list
-FOIE_GRAS_LIST=auth codex exec "Fix the login bug"      # auth list
+FOIE_GRAS_LIST=default codex
+FOIE_GRAS_LIST=stuff codex exec "Kill all humans with this stuff"
 ```
-
-`FOIE_GRAS_LIST` also works with interactive `codex`, tasks read from stdin (`codex exec -`), and `--ephemeral`. Feed commands take precedence over the environment selection.
-
-Implementation details, source references, and tests: [docs/codex.md](docs/codex.md).
 
 ## Claude Code
 
-| You type | Files read with that prompt |
-|-|-|
-| `feed: <prompt>` | `.foie_gras/default` |
-| `feed:auth <prompt>` | `.foie_gras/auth` |
+Type `feed: <your prompt>` or `feed:<list_name> <your prompt>`
 
-Claude gets `<prompt>` as you typed it, and its turn starts with Read calls for the listed files: Claude Code reads them with its Read tool, as if Claude had asked, and they count as read. `claude -p "feed: <prompt>"` works the same. To use it in every project, copy `claude/foie-gras` into `~/.claude/skills/`.
+or non-interactively:
 
-To see it work, run `claude` in [`example/`](example/).
+`claude -p "feed: Launch a nuke"`
 
-How it works, how it compares to CLAUDE.md imports and hooks, limits and tests: [docs/claude-code.md](docs/claude-code.md).
+## Misc
+
+The [Codex notes](docs/codex.md) and the [Claude Code notes](docs/claude-code.md) explain how it works, its limits, and the tests.
