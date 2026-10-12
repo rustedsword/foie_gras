@@ -51,8 +51,18 @@ FOIE_GRAS_EOF
   python3 "$root/.codex/foie_gras.py" --install "$root" > /dev/null
 }
 
+install_opencode() {
+  put .opencode/plugins/foie_gras.ts <<'FOIE_GRAS_EOF'
+@include opencode/plugins/foie_gras.ts
+FOIE_GRAS_EOF
+  put .opencode/foie_gras.py <<'FOIE_GRAS_EOF'
+@include opencode/foie_gras.py
+FOIE_GRAS_EOF
+}
+
 install_list
 install_claude
 install_codex
+install_opencode
 echo "foie_gras installed in $root"
-echo "List files in .foie_gras/default. Claude Code: feed: <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."
+echo "List files in .foie_gras/default. Claude Code and opencode: feed: <prompt>. Codex: approve the hook in /hooks, submit feed, then enter your prompt."

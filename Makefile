@@ -5,7 +5,7 @@ foie-gras: foie-gras.in $(SOURCES)
 	awk '/^@include /{while ((getline line < $$2) > 0) print line; close($$2); next} 1' $< > $@
 	chmod +x $@
 
-claude/foie-gras/feed.py: codex/feed.py
+claude/foie-gras/feed.py opencode/foie_gras.py: codex/feed.py
 	cp $< $@
 
 install: foie-gras

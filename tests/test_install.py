@@ -55,20 +55,23 @@ class InstallTests(unittest.TestCase):
                                 input=json.dumps(event), capture_output=True, text=True, check=True)
         return json.loads(result.stdout)
 
-    def claude_files(self, name="default"):
-        return subprocess.run(["python3", str(self.root / ".claude/skills/foie-gras/feed.py"), f"--files={name}"],
+    def claude_files(self, name="default", script=".claude/skills/foie-gras/feed.py"):
+        return subprocess.run(["python3", str(self.root / script), f"--files={name}"],
                               cwd=self.root / "src", env=self.environment, capture_output=True, text=True)
 
-    def test_missing_entry_stops_both_agents(self):
+    def opencode_files(self, name="default"):
+        return self.claude_files(name, ".opencode/foie_gras.py")
+
+    def test_missing_entry_stops_all_agents(self):
         self.install()
         (self.root / ".foie_gras/default").write_text("src/alpha.py\nsrc/missing.py\n")
-        result = self.claude_files()
-        self.assertEqual((result.returncode, result.stdout), (1, ""))
-        self.assertIn("'src/missing.py'", result.stderr)
+        for result in (self.claude_files(), self.opencode_files()):
+            self.assertEqual((result.returncode, result.stdout), (1, ""))
+            self.assertIn("'src/missing.py'", result.stderr)
         self.assertEqual(self.codex_hook(), {})
         self.assertIn("'src/missing.py'", self.codex_hook("feed")["reason"])
 
-    def test_installs_both_agents_with_an_empty_default_list(self):
+    def test_installs_all_agents_with_an_empty_default_list(self):
         self.assertIn(str(self.root), self.install().stdout)
         self.assertEqual((self.root / ".foie_gras/default").read_text(), "")
         self.assertEqual(self.handlers(), [COMMAND])
@@ -76,6 +79,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(json.loads((mod / ".claude-plugin/plugin.json").read_text())["name"], "foie-gras")
         self.assertEqual(json.loads((mod / "hooks/hooks.json").read_text()), {"modules": ["./register.ts"]})
         self.assertIn("turn.step", (mod / "hooks/register.ts").read_text())
+        self.assertIn("session.hook('prompt'", (self.root / ".opencode/plugins/foie_gras.ts").read_text())
         self.assertEqual(self.codex_hook(), {})
         self.assertIn("contains no files", self.claude_files().stderr)
         (self.root / "src/b c.py").write_text("B = 1\n")
@@ -86,6 +90,7 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(result["continue"])
         self.assertEqual(self.codex_hook("feed:default"), result)
         self.assertEqual(self.claude_files().stdout, f"{self.root}/src/alpha.py\n{self.root}/src/b c.py\n")
+        self.assertEqual(self.opencode_files().stdout, self.claude_files().stdout)
 
     def test_rerun_keeps_lists_and_other_hooks_and_replaces_its_own(self):
         (self.root / ".codex").mkdir()
@@ -105,13 +110,14 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.codex_hook(), {})
         self.assertIn('ALPHA = "first"', self.codex_hook("feed")["hookSpecificOutput"]["additionalContext"])
 
-    def test_both_agents_resolve_crlf_lists_absolute_paths_and_aliases_alike(self):
+    def test_all_agents_resolve_crlf_lists_absolute_paths_and_aliases_alike(self):
         self.install()
         (self.root / "src/beta.py").write_text("BETA = 2\n")
         (self.root / "alias.py").symlink_to(self.root / "src/alpha.py")
         (self.root / ".foie_gras/default").write_text(f"src/alpha.py\r\nalias.py\r\n{self.root}/src/beta.py\r\n")
         files = [str(self.root / "src/alpha.py"), str(self.root / "src/beta.py")]
         self.assertEqual(self.claude_files().stdout.splitlines(), files)
+        self.assertEqual(self.opencode_files().stdout.splitlines(), files)
         context = self.codex_hook("feed")["hookSpecificOutput"]["additionalContext"]
         self.assertEqual(re.findall(r'^File: "(.+)" \(', context, re.M), files)
 

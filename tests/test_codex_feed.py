@@ -296,9 +296,9 @@ class FeedTests(unittest.TestCase):
             feed.install(self.root)
         self.assertEqual(path.read_text(), '{"hooks": []}')
 
-    def test_claude_mod_resolves_lists_with_this_script(self):
-        copy = SCRIPT.parents[1] / "claude/foie-gras/feed.py"
-        self.assertEqual(copy.read_bytes(), SCRIPT.read_bytes(), "run make")
+    def test_claude_and_opencode_resolve_lists_with_this_script(self):
+        for copy in ("claude/foie-gras/feed.py", "opencode/foie_gras.py"):
+            self.assertEqual((SCRIPT.parents[1] / copy).read_bytes(), SCRIPT.read_bytes(), "run make")
 
 
 if __name__ == "__main__":

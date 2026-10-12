@@ -61,6 +61,21 @@ feed: Add a --priority option (low, normal, high; default normal) to `todo add`,
 
 Claude's turn starts by reading the five default files. `feed:export Add a --format json option to the exporter` does the same with the export list.
 
+## opencode
+
+```sh
+cd example
+opencode
+```
+
+Then type:
+
+```
+feed: Add a --priority option (low, normal, high; default normal) to `todo add`, show it in `todo list` and cover it in tests.
+```
+
+The model gets the prompt with the five default files, as read calls of its own. `feed:export Add a --format json option to the exporter` does the same with the export list.
+
 ## The app itself
 
 ```sh
@@ -69,4 +84,4 @@ python3 -m todo list
 python3 -m unittest
 ```
 
-`.claude/skills/foie-gras` is a symlink into `../claude/`.
+`.claude/skills/foie-gras` is a symlink into `../claude/`, and `.opencode` one to `../opencode`.

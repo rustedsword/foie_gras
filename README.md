@@ -8,7 +8,7 @@ You ask an agent to fix a bug, then wait while it searches the repo and reads fi
 
 Define a list of files, and foie_gras loads their contents into the model's context before it gets your first prompt. Unlike listing paths in `AGENTS.md` or `CLAUDE.md`, this ensures the model can't refuse or "forget" to load them.
 
-Works with Claude Code and Codex CLI.
+Works with Claude Code, Codex CLI and opencode.
 
 ## Use
 
@@ -49,6 +49,14 @@ or non-interactively:
 
 `claude -p "feed: Launch a nuke"`
 
+## opencode
+
+Type `feed: <your prompt>` or `feed:<list_name> <your prompt>`
+
+or non-interactively:
+
+`opencode run "feed: Fatten up the humans. The geese are hungry"`
+
 ## Misc
 
-The [Codex notes](docs/codex.md) and the [Claude Code notes](docs/claude-code.md) explain how it works, its limits, and the tests.
+The [Codex notes](docs/codex.md), the [Claude Code notes](docs/claude-code.md) and the [opencode notes](docs/opencode.md) explain how it works, its limits, and the tests.
